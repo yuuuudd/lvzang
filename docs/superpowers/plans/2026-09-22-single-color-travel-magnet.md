@@ -1,5 +1,7 @@
 # Single-color Travel Magnet Implementation Plan
 
+**Implementation amendment (2026-09-22):** The user supplied access to a DeepSeek API Key. Implemented a native Node HTTP server with server-side credentials and verified current `deepseek-flash` vision / JSON request shape. Offline mode remains explicit. Static files now live in `public/`; `model.js` combines height-map and STL logic, `artwork.js` draws constrained designs, `preview.js` renders the shared mesh, `app.js` handles UI/media. Four themes include love. Tests are consolidated into `tests/` with Node's built-in runner. Detailed evidence and remaining hardware/API checks are tracked in `docs/implementation-progress.md`; the original checkbox sequence below is historical planning, not a completion claim.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build a dependency-free browser demo that turns a short travel story into a controlled white bas-relief design and exports the same design as a printable STL.
@@ -10,9 +12,11 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-22-single-color-travel-magnet-design.md`
 
+**Scope amendment:** The user requested voice input with typing retained, plus camera capture and photo selection, and explicitly chose support for both people and scenery. The updated design proposes a shared crop/contrast/threshold-to-relief pipeline with two layouts. The original text-only plan is no longer the complete scope; the photo intake and generation work below is required.
+
 ## Global Constraints
 
-- The demo must work without an API key or network request.
+- Typing, rule-based design, and STL export must work without an API key or network request. Voice recognition must be verified separately on the event device; browser availability does not guarantee the recognition service works.
 - One landmark, one 60 × 45 mm rectangular product, and three story themes only.
 - White single-material preview; default 2 mm base and 1.2 mm relief.
 - STL and preview must derive from the same height map.
@@ -140,6 +144,20 @@ test('an empty height map is rejected', () => {
 - [ ] **Step 6: Commit with `git commit -m "feat: export relief designs as STL"`**
 
 ### Task 3: Actual-design preview and export flow
+
+**Media intake requirements added by the user:**
+- Keep a visible editable story field alongside a prominent start/stop voice button. Enforce 300 characters without silently truncating.
+- Feature-detect speech recognition. Retain confirmed text during interim recognition, retries, cancellation, and errors; do not replace the story with an empty recognition result.
+- Include camera preview/capture/retake and a separate ordinary photo-picker. Both routes share the same image preview, replace, and remove controls.
+- Request camera/microphone only after user action; release camera tracks and stop recognition when the user closes the capture flow or leaves the page.
+- Validate successful image decoding, JPEG/PNG/WebP format, a 10 MB file ceiling, and a 24-megapixel ceiling; downsample to a maximum 1600-pixel long edge before further processing.
+- Keep capture and photo selection functional independently of photo-to-relief generation. Do not label a photo as part of the STL unless it actually contributes to the shared model data.
+- Test microphone denial, unsupported recognition, empty recognition results, camera denial, image replacement/removal, corrupt image files, and the complete typing-only fallback. Actual voice/camera testing requires the event device and its user's permission.
+- Document localhost development and HTTPS for remote-device camera access. Do not claim the media flow is offline merely because the text-only flow is.
+- Include user-selected portrait/scenery layouts with crop, contrast, threshold and an original/simplified preview. Convert the simplified image into an explicit foreground mask before height generation; feeding opaque photo alpha directly into `heightMapFromImageData` would generate a flat block.
+- Portrait layout gives the subject the central image region and uses a small landmark border. Scenery replaces the default landmark in the main image region. Both keep a separate caption/date region.
+- Add a literal synthetic image fixture with a dark foreground square on a bright background. Assert foreground and background produce different heights, that changing the square position moves the raised geometry, and that two entirely different photos cannot yield the same geometry merely because both are opaque.
+- Verify both a portrait and a scenery photo change the shared preview/export geometry, and removing a photo restores the default landmark without losing story text. Do not call local thresholding AI background removal or actual depth reconstruction.
 
 **Files:**
 - Create: `src/artwork.js`

@@ -1,0 +1,148 @@
+.version-nav{display:flex;align-items:center;gap:24px;margin-left:auto;margin-right:28px;font-size:13px}
+.version-nav .simple-tab,.version-nav .pro-entry{display:none}
+.version-nav .simple-entry,.version-nav .pro-entry{border:1px solid #d9dfd3;border-radius:999px;padding:9px 16px;background:#fffefa}
+.version-nav a:hover{color:#ad5337}
+
+.simple-ui{font-family:'Noto Sans SC','Microsoft YaHei',sans-serif;color:#20382e;background:#faf8f2;font-synthesis:none;--ink:#20382e;--muted:#65766b;--accent:#b75a3c;--line:#e2e5da}
+.simple-ui body{background:#faf8f2}
+.simple-ui header{max-width:1600px;height:92px;padding:0 clamp(24px,3.5vw,64px);border:0}
+.simple-ui .brand{font:600 26px/1 'Noto Serif SC','Songti SC',serif;letter-spacing:2px}
+.simple-ui .brand-icon{width:42px;height:42px;border:0;font-size:0}
+.simple-ui .brand-icon::after{content:'☀';font:34px/1 serif;color:#c46b43}
+.simple-ui .version-nav{flex:1;justify-content:center;gap:34px;margin:0 0 0 60px;font-size:17px}
+.simple-ui .version-nav .simple-tab,.simple-ui .version-nav .pro-entry{display:inline-flex}
+.simple-ui .version-nav .simple-entry,.simple-ui .pill{display:none}
+.simple-ui .version-nav .simple-tab{position:relative;padding:10px 0;color:#687a6e}
+.simple-ui .version-nav .simple-tab[aria-current=page]{color:#20382e;font-weight:600}
+.simple-ui .version-nav .simple-tab[aria-current=page]::after{content:'';position:absolute;left:0;right:0;bottom:3px;height:2px;background:#254638}
+.simple-ui .version-nav .pro-entry{margin-left:auto;border-color:#cdd8cd;background:transparent;color:#315748;white-space:nowrap}
+.simple-ui main{max-width:1600px;padding:16px clamp(24px,3.5vw,64px) 60px}
+.simple-ui .intro,.simple-ui footer{display:none}
+.simple-ui[data-simple-page=trip] .workspace,.simple-ui[data-simple-page=trip] .history{display:none}
+.simple-ui[data-simple-page=object] #trip-section{display:none}
+.simple-ui h1,.simple-ui h2,.simple-ui h3{color:#20382e}
+.simple-ui .primary{background:#b75a3c;border-radius:11px;font-size:19px;font-weight:500;min-height:70px;padding:19px 25px;letter-spacing:1px}
+.simple-ui .primary:hover{background:#a2482d}
+.simple-ui .small-button,.simple-ui .export-button{font-size:14px}
+.simple-ui .status{font-size:14px;line-height:1.6}
+
+/* The existing inputs and renderers remain mounted in both versions. */
+.simple-ui #trip-section{display:grid;grid-template-columns:minmax(320px,31%) minmax(0,1fr);grid-template-areas:'heading atlas' 'form atlas' 'actions atlas' 'status atlas' 'library library';grid-template-rows:auto 1fr auto auto auto;align-items:start;column-gap:clamp(34px,4vw,72px);row-gap:18px;padding:20px 0 0;margin:0;border:0;border-radius:0;box-shadow:none;background:none}
+.simple-ui .trip-heading{grid-area:heading;display:block;margin:42px 0 10px}
+.simple-ui .trip-heading h2{font:500 clamp(39px,4.2vw,67px)/1.25 'Noto Serif SC','Songti SC',serif;letter-spacing:-2px;margin:0;max-width:6.5em}
+.simple-ui .trip-heading .eyebrow,.simple-ui .trip-heading p,.simple-ui .trip-heading>a,.simple-ui .form-kicker,.simple-ui .trip-fields>div:not(:first-of-type),.simple-ui .trip-upload-field>label span,.simple-ui .trip-upload-caption,.simple-ui .trip-upload-strip:has(#trip-upload-preview:empty)::after,.simple-ui .trip-actions>:not(#trip-curate),.simple-ui #trip-point-panel,.simple-ui #trip-batch-dev,.simple-ui .trip-atlas-heading,.simple-ui #trip-convert-legacy,.simple-ui .trip-painting-actions>span{display:none!important}
+.simple-ui .trip-form{grid-area:form;display:flex;flex-direction:column;gap:26px;margin:0}
+.simple-ui .trip-fields,.simple-ui .trip-upload-field{display:block;min-height:0;padding:0;border:0;border-radius:0;background:none;color:#20382e}
+.simple-ui .trip-fields>div:first-of-type{display:block;grid-column:auto}
+.simple-ui .trip-fields label,.simple-ui .trip-upload-field>label{font-size:17px;font-weight:500;margin:0 0 12px}
+.simple-ui .trip-upload-field>label{font-size:0}
+.simple-ui .trip-upload-field>label::before{content:'旅行照片';font-size:17px}
+.simple-ui .trip-fields input:not([type=file]){height:58px;font-size:19px;border:1px solid #cbd5cc;border-radius:10px;padding:0 17px;background:#fffefa}
+.simple-ui .trip-upload-strip{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px}
+.simple-ui .trip-add-tile,.simple-ui .trip-upload-thumb{aspect-ratio:1;border-radius:10px}
+.simple-ui .trip-upload-field .trip-add-tile{border-color:#acbfb0;background:#fffefa;color:#2f5545}
+.simple-ui .trip-add-tile strong{font-size:32px}
+.simple-ui .trip-add-tile span{font-size:13px}
+.simple-ui .trip-upload-thumb span{display:none}
+.simple-ui #trip-photo-count{display:none}
+.simple-ui #trip-photo-count.error{display:block;font-size:14px;color:#a8402c}
+.simple-ui .trip-actions{grid-area:actions;margin:10px 0 0}
+.simple-ui .trip-actions #trip-curate{width:100%;min-width:0}
+.simple-ui #trip-status{grid-area:status;margin:0;min-height:26px}
+.simple-ui #trip-section>.hint{display:none!important}
+.simple-ui #trip-atlas{grid-area:atlas;align-self:start;min-width:0;margin:0;padding:0;border:0}
+.simple-ui #trip-section:has(#trip-atlas[hidden])::after{content:'旅行画示意';grid-area:atlas;min-height:660px;display:flex;align-items:flex-end;padding:22px;color:#fff;font-size:15px;border-radius:16px;background:linear-gradient(0deg,#142f29a3,transparent 20%),url('/assets/simple-trip-preview.png') center/cover;box-shadow:0 16px 35px #294a3b16}
+.simple-ui .trip-art-layout{display:grid;grid-template-columns:240px minmax(0,1fr);gap:20px}
+.simple-ui .trip-art-layout>.trip-painting-wrap,.simple-ui .trip-art-layout>.trip-collage-wrap{grid-column:2;grid-row:1;width:100%;max-width:none}
+.simple-ui .trip-art-sidebar{grid-column:1;grid-row:1;display:flex;flex-direction:column;gap:12px}
+.simple-ui .trip-art-sidebar>.trip-piece-list{display:flex;flex-direction:column;gap:10px;border:0;padding:0}
+.simple-ui .trip-art-sidebar>.trip-piece-list button{font:500 14px/1.3 'Noto Sans SC',sans-serif;min-height:40px}
+.simple-ui .trip-cabinet-card .small-button{font-size:11px}
+.simple-ui .trip-painting-stage,.simple-ui .trip-collage-wrap canvas{border:0;border-radius:16px;box-shadow:0 16px 35px #294a3b16;overflow:hidden}
+.simple-ui .trip-painting-tools{padding:10px 0}
+.simple-ui .trip-painting-tools span{font-size:14px}
+.simple-ui .trip-painting-actions{margin:0 0 12px}
+.simple-ui .trip-painting-actions .primary{min-height:48px;font-size:14px;width:auto}
+.simple-ui #trip-atlas:has(#trip-painting-wrap:not([hidden])) #trip-gallery{display:none}
+.simple-ui .trip-gallery{gap:12px}
+.simple-ui .trip-photo{border-radius:14px}
+.simple-ui .trip-library{grid-area:library;margin:42px 0 0;padding:24px 0;border-top:1px solid #dfe5dc}
+.simple-ui .trip-library:not(:has(.trip-library-card)){display:none}
+.simple-ui .trip-library h3{font:500 24px 'Noto Serif SC','Songti SC',serif}
+.simple-ui .trip-library-card p{display:none}
+.simple-ui .trip-detail{font-family:'Noto Sans SC',sans-serif;transform:none}
+
+.simple-ui .workspace{grid-template-columns:minmax(330px,43%) minmax(0,1fr);gap:clamp(35px,5vw,80px);align-items:start;padding-top:20px}
+.simple-ui .editor{display:flex;flex-direction:column;padding:18px 0;border:0;border-radius:0;box-shadow:none;background:none}
+.simple-ui .section-heading{order:0;margin:18px 0 30px}
+.simple-ui .section-heading h2{font:500 clamp(40px,4.1vw,66px)/1.25 'Noto Serif SC','Songti SC',serif;letter-spacing:-2px;max-width:6.5em}
+.simple-ui #trip-create-context{order:1;font-size:14px}
+.simple-ui .editor .photo-heading{order:2;margin:0 0 11px}
+.simple-ui .editor .photo-heading label,.simple-ui .editor>label[for=story]{font-size:17px;font-weight:500;margin:0 0 11px}
+.simple-ui .editor .photo-zone{order:3;min-height:195px;padding:15px;border:1px dashed #adbfaf;border-radius:13px;background:#fffefa}
+.simple-ui .editor #photo-prompt{height:160px;font-size:17px}
+.simple-ui .editor #photo-prompt>span:last-child{font-size:0}
+.simple-ui .editor #photo-prompt>span:last-child::after{content:'添加照片';font-size:17px}
+.simple-ui .editor #photo-card{width:220px;height:145px;margin:0 auto 5px}
+.simple-ui .editor #photo-replace{font-size:14px}
+.simple-ui .editor>label[for=story]{order:4;margin:28px 0 11px}
+.simple-ui .editor .story-wrap{order:5;min-height:115px;padding:12px 16px;border:1px solid #cbd5cc;border-radius:11px;background:#fffefa}
+.simple-ui .editor textarea{min-height:85px;font-size:16px;line-height:1.65}
+.simple-ui .editor .generation{order:6;margin-top:28px;padding:0;border:0}
+.simple-ui .editor #creation-error{order:7}
+.simple-ui .editor>.field-row,.simple-ui .editor>.hint,.simple-ui .editor>.print-settings,.simple-ui .editor #speech-status,.simple-ui .editor .story-bottom,.simple-ui .editor .photo-actions,.simple-ui .editor .developer-options,.simple-ui .editor .generation>.text-button:not(#cancel),.simple-ui .editor .generation>.small-button:not(#resume){display:none!important}
+.simple-ui .editor #cancel,.simple-ui .editor #resume{font-size:14px;margin-top:12px}
+.simple-ui .result{padding-top:22px}
+.simple-ui .preview-heading{height:auto;margin:0 0 16px}
+.simple-ui .preview-heading h2{font:500 21px 'Noto Serif SC','Songti SC',serif}
+.simple-ui .preview-heading h2::before,.simple-ui .preview-heading .source,.simple-ui .preview-details .creation-trail,.simple-ui .result .material-tabs,.simple-ui .result .design-note,.simple-ui .result .refine,.simple-ui .result .birth-card,.simple-ui .result .agent-report,.simple-ui .result #save-image,.simple-ui .result #legacy-relief,.simple-ui .result .creation-details,.simple-ui .result #reference-review{display:none!important}
+.simple-ui .story-brief{padding:0 0 18px}
+.simple-ui .story-brief h3{font-size:19px}
+.simple-ui .story-brief img{display:block;max-width:100%;max-height:460px;margin:12px auto;border-radius:13px}
+.simple-ui .story-brief #reference-check{font-size:14px;line-height:1.6}
+.simple-ui .story-brief #build-reference{font-size:16px}
+.simple-ui .model-empty{position:relative;min-height:580px;padding:0;border:0;border-radius:16px;background:url('/assets/simple-object-preview.png') center/cover;color:transparent;font-size:0;overflow:hidden}
+.simple-ui .model-empty::before{display:none}
+.simple-ui .model-empty::after{content:'作品示意';position:absolute;left:24px;bottom:20px;color:#fff;background:#20382ec4;border-radius:999px;padding:7px 13px;font:14px 'Noto Sans SC',sans-serif}
+.simple-ui .stage{height:580px;border-radius:16px;background:radial-gradient(ellipse at 50% 40%,#f7faf5,#dce9de 70%,#cbdccf);box-shadow:none}
+.simple-ui .stage::before,.simple-ui .stage-top{display:none}
+.simple-ui .stage-bottom{font-size:13px;color:#284638}
+.simple-ui .stage-button{font-size:13px;color:#284638;background:#fffefa;border-color:#dce6da}
+.simple-ui .export-row{margin-top:18px}
+.simple-ui .export-button{background:#315747;min-height:55px;align-items:center;border-color:#315747}
+.simple-ui .export-button:hover{background:#254536}
+.simple-ui .history{background:none;border:0;border-top:1px solid #dfe5dc;padding:22px 0}
+.simple-ui .history>summary{font-size:22px;font-family:'Noto Serif SC','Songti SC',serif}
+.simple-ui .history .hint,.simple-ui .history-card p{display:none}
+
+@media(max-width:900px){
+  .simple-ui header{height:auto;min-height:78px;flex-wrap:wrap;gap:8px;padding:15px 22px}
+  .simple-ui .version-nav{order:2;flex-basis:100%;justify-content:flex-start;margin:0;gap:20px;font-size:14px}
+  .simple-ui .version-nav .pro-entry{margin-left:auto}
+  .simple-ui main{padding:8px 22px 45px}
+  .simple-ui #trip-section{grid-template-columns:1fr;grid-template-rows:auto;grid-template-areas:'heading' 'form' 'actions' 'status' 'atlas' 'library';gap:18px}
+  .simple-ui .trip-heading{margin:16px 0 0}
+  .simple-ui .trip-form{gap:20px}
+  .simple-ui #trip-section:has(#trip-atlas[hidden])::after{min-height:400px}
+  .simple-ui .trip-art-layout{display:flex;flex-direction:column;gap:12px}
+  .simple-ui .trip-art-layout>.trip-painting-wrap,.simple-ui .trip-art-layout>.trip-collage-wrap{order:0}
+  .simple-ui .trip-art-sidebar{order:1;height:auto}
+  .simple-ui .trip-art-sidebar>.trip-piece-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));width:100%}
+  .simple-ui .workspace{grid-template-columns:1fr;gap:20px}
+  .simple-ui .editor{padding:0}
+  .simple-ui .section-heading{margin:16px 0 22px}
+  .simple-ui .result{padding:0}
+  .simple-ui .model-empty,.simple-ui .stage{min-height:370px;height:370px}
+}
+@media(max-width:520px){
+  .simple-ui .brand{font-size:22px}
+  .simple-ui .version-nav{gap:12px;font-size:13px}
+  .simple-ui .version-nav .pro-entry{padding:7px 10px}
+  .simple-ui .trip-heading h2,.simple-ui .section-heading h2{font-size:38px}
+  .simple-ui .trip-upload-strip{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .simple-ui #trip-section:has(#trip-atlas[hidden])::after{min-height:290px}
+  .simple-ui .trip-gallery{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .simple-ui .trip-art-sidebar>.trip-piece-list{grid-template-columns:1fr}
+  .simple-ui .export-row{flex-direction:column}
+  .simple-ui .stage-bottom>span{display:none}
+}

@@ -1,0 +1,10 @@
+.env*
+.npm-cache/
+.superpowers/
+.git/
+artifacts/
+docs/
+node_modules/
+output/
+tests/
+*.log

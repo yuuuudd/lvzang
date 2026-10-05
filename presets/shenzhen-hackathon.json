@@ -1,0 +1,11 @@
+{
+  "id": "shenzhen-hackathon",
+  "name": "深圳啤酒小镇 · 黑客松",
+  "venue": "深圳啤酒小镇",
+  "activity": "黑客松",
+  "character": "塔奇克马",
+  "venueDescription": "玻璃楼宇夹出的街道入口，红色弯管与横向圆筒装置形成醒目的门形轮廓；保留建筑体量，不照抄照片中的招牌文字和路人",
+  "characterDescription": "蓝色圆润的多足小型机器人，圆形机身、短机械臂和可辨认的前部结构；只参考机器人本体，不照抄展台文字",
+  "venueImage": "venue.jpg",
+  "characterImage": "tachikoma.jpg"
+}

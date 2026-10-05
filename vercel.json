@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "server.js": {
+      "maxDuration": 300,
+      "includeFiles": "{public/**,prompts/**,presets/**}"
+    }
+  }
+}

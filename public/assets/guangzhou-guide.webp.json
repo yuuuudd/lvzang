@@ -1,0 +1,25 @@
+{
+  "approvedDirection": "Guangzhou-guide-preview.png",
+  "type": "generated-map-asset",
+  "method": "image_gen; lossless-content WebP compression via sharp",
+  "prompt": "Create a standalone background asset for a Guangzhou scenic tourist guide map inside a modern travel planning app. Use the map illustration from the referenced UI only as art direction; output ONLY a single landscape map illustration, no web UI, no labels, no text, no numbers, no pins, no routes, no border, no compass. 3:2 aspect ratio. Refined contemporary tourist visitor map illustration: inviting pastel colors, mint foliage, broad turquoise Pearl River, cream paving, stylized recognizable architectural silhouettes, gentle perspective with north at top. Fewer buildings, clean generous open space, NOT a dense detailed miniature city. Flat-ish softly shaded editorial illustration with carefully recognizable major landmarks, light mint and sky blue palette, dark red museum accent, no overwhelming saturated neon.\n\nComposition IMPORTANT for adding interactive POI labels later: Canton Tower on SOUTH bank centered at normalized (0.50,0.81) base, tall slim twisting hyperboloid lattice pinched waist needle spire, recognizable small-waist Guangzhou Tower. Pearl River runs left to right between y=0.53 and 0.70, turquoise, a few tiny boats. North bank Huacheng Square runs north to south above river in central strip, central park landmark center around (0.52,0.28). Guangdong Museum on NORTH bank to EAST of square, broad dark red charcoal cuboid treasure box building of offset facade blocks at (0.81,0.42). Guangzhou Opera House on NORTH bank WEST of square, two low asymmetric faceted pebble volumes at (0.22,0.43), NOT Sydney sails. Haixinsha park island at (0.65,0.57). Graceful white curved arch pedestrian Haixin Bridge WEST of tower near x=0.28 crossing water to south bank, clearly complete bridge and pedestrian path linking banks. Use only a few plain skyline silhouettes across top edge and simple trees, not hundreds of detailed towers. Museum and opera shapes faithful to Guangzhou identity, no generic palaces. Key paths readable between these landmarks. Entire scenic guide illustration edge to edge with well placed landmarks and gently open areas to accommodate real UI labels. High quality, no typography anywhere.",
+  "anchors": {
+    "museum": [
+      0.8,
+      0.4
+    ],
+    "square": [
+      0.51,
+      0.3
+    ],
+    "tower": [
+      0.48,
+      0.87
+    ],
+    "opera": [
+      0.23,
+      0.39
+    ]
+  },
+  "note": "Schematic guide map, not geographic navigation. Fixed art, live POI and route overlays."
+}

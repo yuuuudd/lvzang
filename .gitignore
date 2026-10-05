@@ -1,0 +1,16 @@
+.env
+.env.*
+!.env.example
+node_modules/
+.npm-cache/
+.vercel/
+.superpowers/
+artifacts/
+*.log
+
+.vercel
+.env*
+
+# Team handoff: keep only the blank configuration template
+!.env.example
+output/
