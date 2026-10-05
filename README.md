@@ -1,4 +1,4 @@
-> **队友交接入口（2026-10-05）**：先阅读 [handoff/00-先读我.md](handoff/00-先读我.md)。本次目标、两人分工、接口和GitHub协作都在 handoff/；下文保留原照片创作系统说明。
+> **队友交接入口（2026-10-05）**：先阅读 [handoff/00-先读我.md](handoff/00-先读我.md)。私有协作仓库：[yuuuudd/lvzang](https://github.com/yuuuudd/lvzang)。本次目标、两人分工、接口和GitHub协作都在 handoff/；下文保留原照片创作系统说明。
 
 # 拾光 · 可交互的旅行回忆画与立体纪念物
 

@@ -4,20 +4,23 @@
 
 一个私有仓库，两位协作者，各自功能分支，Pull Request互相审阅再合并。压缩包只用于第一次交接与离线备份，后续以GitHub为代码来源。
 
-本次只准备交接包，没有创建仓库、邀请队友或上传代码。包中不含.git历史。工作目录许多源码未跟踪，不能把最后一次commit或git archive当成当前完整版本。
+已上传私有仓库：https://github.com/yuuuudd/lvzang 。main是当前交接基线，源码、素材和交接文档已经提交；桌面压缩包是不含.git的离线快照。协作者尚需由仓库所有者在Settings → Collaborators中添加，队友获得访问权限后才能克隆私有仓库。
 
 ## 建立共同起点
 
-由一人创建空私有仓库，在干净的解压目录初始化并审核首批文件，提交当前快照后再添加实际远程地址和推送。不要在原工作目录重建.git、覆盖已有remote或把私有配置一起上传。
+队友获得仓库访问权限后，直接克隆共同仓库：
 
 ~~~powershell
-git init -b main
-git add .
-git diff --cached --stat
-git status --short
+git clone https://github.com/yuuuudd/lvzang.git
+cd lvzang
+npm ci
+Copy-Item -LiteralPath .env.example -Destination .env
+npm start
 ~~~
 
-确认.env、node_modules、缓存、个人照片、输出和密钥没有进入暂存，再提交“当前交接基线”。远程仓库URL由实际GitHub仓库决定，不在本包虚构。队友clone共同仓库，而不是再次把.zip作为另一条独立Git历史上传。
+编辑自己的.env配置密钥。默认入口：http://localhost:4180/travel.html。每个人在自己的电脑保留配置与浏览器作品；GitHub同步代码，不自动同步本机收藏或照片。
+
+已有原工作目录已添加origin，保留当前codex/travel-magnet-demo分支及原历史。后续在各自功能分支提出PR到main，不需要重新初始化或上传zip。其他队友一律从共同仓库clone。
 
 ## 日常节奏
 
