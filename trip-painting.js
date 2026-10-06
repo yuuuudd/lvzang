@@ -2,7 +2,7 @@ import sharp from 'sharp';
 
 const unit=value=>Number.isFinite(value)&&value>=0&&value<=1;
 export function paintingMemories(value){
-  if(!Array.isArray(value)||value.length<2||value.length>9)throw new Error('请选择 2–9 个照片记忆元素');
+  if(!Array.isArray(value)||value.length<1||value.length>9)throw new Error('请选择 1–9 个照片记忆元素');
   const ids=new Set(),photos=new Set();
   for(const memory of value){
     if(!/^m?[\w-]{1,80}$/.test(memory?.id||'')||!/^p[1-9]$/.test(memory?.photoId||'')||ids.has(memory.id)||photos.has(memory.photoId)||!['subject','scene'].includes(memory.kind)||typeof memory.title!=='string'||!memory.title.trim()||memory.title.length>40||typeof memory.evidence!=='string'||memory.evidence.length>180||typeof memory.target!=='string'||!memory.target.trim()||memory.target.length>80)throw new Error('记忆元素格式或来源照片无效');

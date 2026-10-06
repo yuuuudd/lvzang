@@ -1,3 +1,7 @@
+> **统一登录与共享订单（2026-10-06）**：本机入口 `http://localhost:4181/portal.html`。首次创建工作室账号获得用户/经营者权限；普通注册仅获得用户权限。用户从个人作品或“我的订单”提交需求，经营者工作台自动接收，制作与审核后的结果同步回用户确认，再记录交付。账号、会话、订单和提交文件保存在服务端 `output/accounts/`；个人收藏按账号隔离保存在浏览器。见 [双端登录与订单验证](docs/accounts-orders-verification.md)。公网使用需部署可访问且持久存储的服务；本版不新增支付或物流。
+
+> **经营者工作台（2026-10-06）**：`/operator.html` 已接入委托、需求整理、单件创作往返、审核、客户预览、交付包、费用与反馈。个人合集/作品可发起委托，旅行页也有入口。见 [模块职责与跳转设计](docs/superpowers/specs/2026-10-06-operator-workspace-design.md) 和 [实现与验证](docs/operator-verification.md)。以下原本机委托机制仍用于手动代录；用户提交订单现在以服务端数据为准。
+
 > **队友交接入口（2026-10-05）**：先阅读 [handoff/00-先读我.md](handoff/00-先读我.md)。私有协作仓库：[yuuuudd/lvzang](https://github.com/yuuuudd/lvzang)。本次目标、两人分工、接口和GitHub协作都在 handoff/；下文保留原照片创作系统说明。
 
 # 拾光 · 可交互的旅行回忆画与立体纪念物

@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>拾光 · 把故事握在手里</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link id="simple-fonts" rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&family=Noto+Serif+SC:wght@500;600;700&display=swap"><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/simple.css"></head>
 <body>
-<header><a class="brand" href="/" aria-label="拾光首页"><span class="brand-icon">拾</span><span>拾光</span></a><nav class="version-nav" aria-label="页面与版本切换"><a class="simple-tab" data-page="trip" href="#trip-section">旅行回忆画</a><a class="simple-tab" data-page="object" href="#single-create">立体纪念品</a><a class="simple-entry" data-version="simple" href="/simple.html">简洁版 ↗</a><a class="pro-entry" data-version="pro" href="/">专业版 ↗</a></nav></header>
+<header><a class="brand" href="/index.html" aria-label="拾光首页"><span class="brand-icon">拾</span><span>拾光</span></a><nav class="version-nav" aria-label="页面与版本切换"><a class="simple-tab" data-page="trip" href="#trip-section">旅行回忆画</a><a class="simple-tab" data-page="object" href="#single-create">立体纪念品</a><a class="simple-entry" data-version="simple" href="/simple.html">简洁版 ↗</a><a class="pro-entry" data-version="pro" href="/index.html">专业版 ↗</a></nav></header>
 <main>
  <a class="small-button" href="/travel.html">旅藏 · 路线探索与 3D 收藏 ↗</a>
  <section class="intro"><h1>把今天，<span>带回家。</span></h1><p>旅行回忆画，或一件可以触摸的纪念品。</p></section>
@@ -31,6 +31,7 @@
   <section class="editor" aria-label="创作内容">
     <div class="section-heading"><h2>这一刻，值得留下</h2></div>
     <div id="trip-create-context" class="trip-create-context" hidden><span id="trip-create-label"></span><div><button id="return-trip" type="button" class="small-button">返回旅行合集</button><button id="leave-trip" type="button" class="text-button">退出此记忆点</button></div></div>
+    <div class="field-row product-fields"><div><label for="product-type">想做什么产品？</label><select id="product-type"><option value="magnet">冰箱贴</option><option value="figurine">摆件</option></select></div><div id="figurine-base-field" hidden><label for="figurine-base">摆件底座</label><select id="figurine-base"><option value="none">保留自然接地</option><option value="round">增加圆形底座</option></select></div></div><p id="product-rule-note" class="hint">冰箱贴保留正面立体造型，生成平背和磁铁安装结构。</p>
     <label for="story">这一刻的故事（选填）</label>
    <div class="story-wrap"><textarea id="story" maxlength="300" rows="4" placeholder="比如：毕业前，我们三个人又走过学校门口的老街。想把这段一起长大的日子留下来。"></textarea><div class="story-bottom"><button type="button" id="voice" class="text-button">● 说说你的故事</button><span id="counter">0 / 300</span></div></div>
     <p id="speech-status" class="hint" aria-live="polite"></p>
@@ -42,8 +43,8 @@
     <p class="hint flow-cost-note">全自动会继续提交付费建模任务。</p>
     <details class="print-settings"><summary>制作规格</summary>
 <div class="field-row"><div><label for="print-colors">打印耗材颜色</label><select id="print-colors"><option value="1">白色 · 默认</option><option value="2">双色 · 米白 / 砖红</option><option value="3">三色 · 加深蓝</option><option value="4">四色 · 加灰绿</option></select></div><div><label for="print-width">成品宽度 / mm</label><input id="print-width" type="number" min="40" max="120" step="1" value="60"></div></div>
- <p class="hint">参考图和数字三维保留素材原色；耗材颜色仅用于打印 3MF。当前三维暂不加工磁铁孔。</p>
-<div hidden><div class="field-row"><div><label for="magnet-diameter">磁铁直径 / mm</label><input id="magnet-diameter" type="number" min="2" max="12" step="0.1" value="6"></div><div><label for="magnet-depth">磁铁厚度 / mm</label><input id="magnet-depth" type="number" min="1" max="8" step="0.1" value="2"></div></div>
+ <p class="hint">参考图和数字三维保留素材原色；耗材颜色仅用于打印 3MF。冰箱贴加工平背和磁铁孔；摆件单独检查接地稳定性。</p>
+<div id="magnet-settings"><div class="field-row"><div><label for="magnet-diameter">磁铁直径 / mm</label><input id="magnet-diameter" type="number" min="2" max="12" step="0.1" value="6"></div><div><label for="magnet-depth">磁铁厚度 / mm</label><input id="magnet-depth" type="number" min="1" max="8" step="0.1" value="2"></div></div>
 <label for="magnet-clearance">直径装配间隙 / mm</label><input id="magnet-clearance" type="number" min="0" max="0.6" step="0.05" value="0.2">
  </div><button id="apply-print" class="small-button" type="button">应用规格并重新检查</button></details><div class="generation"><button id="generate" class="primary" type="button">生成我的纪念品 <span>↗</span></button><button id="cancel" class="text-button" hidden>停止等待（云端任务可能继续）</button><button id="resume" class="small-button" hidden>继续取生成结果</button><details class="developer-options"><summary>开发选项</summary><div class="mode-row"><label for="mode">创作方式</label><select id="mode"><option value="tripo3d">故事创作 · 参考图 → 三维</option><option value="agent">结构实验 · AI 拱廊模板</option><option value="offline">本地结构试制 · 无 AI</option><option value="tripo">旧版 AI 图片浮雕</option><option value="local">旧版照片直转浮雕</option></select></div><p id="api-status" class="hint">正在检查本地接口…</p><button id="sample" class="text-button">几何测试样本</button></details></div>
     <p id="creation-error" class="status error" role="alert" hidden></p>

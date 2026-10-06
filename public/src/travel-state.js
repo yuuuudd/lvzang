@@ -1,8 +1,10 @@
 import {byId,places} from './travel-catalog.js';
-const KEY='lvzang.v1';
+import {accountInfo,storageKey} from './account-client.js';
+const KEY=storageKey('lvzang.v1');
 const clean=v=>typeof v==='string'?v:'';
 export function initialState(){return {version:1,plan:null,collection:[],requests:[],activities:[],notes:[],title:'我的旅行展柜'};}
 export function readState(storage){
+  if(accountInfo.user?.workspaceOwner&&!storage.getItem(KEY)&&storage.getItem('lvzang.v1'))storage.setItem(KEY,storage.getItem('lvzang.v1'));
   const raw=storage.getItem(KEY);if(!raw)return initialState();
   try{
     const value=JSON.parse(raw);if(!value||value.version!==1)throw new Error();

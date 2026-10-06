@@ -1,5 +1,6 @@
+import {requestUserIdentity} from './account-ui.js';
 import {places,byId,themes} from './travel-catalog.js';
-import {initialState,readState,writeState,unlock,addRequest,addQuote,encodeExhibition,decodeExhibition} from './travel-state.js';
+import {initialState,readState,writeState,unlock,decodeExhibition} from './travel-state.js';
 import {makeSouvenir,souvenirSTL} from './souvenir-mesh.js';
 import {createPreview} from './preview.js';
 import {download} from './export-file.js';
@@ -12,6 +13,7 @@ let controller=null,routePreviews=[],resetPrevious=false,destinationTouched=fals
 const sampleInput=normalizeRequest({description:'广州半天，预算300元，喜欢文化建筑和拍照',startTime:'13:00'});
 const samplePlan={...planFromCatalog(sampleInput,undefined,{placeIds:['gz-museum','gz-square','gz-tower'],title:'广州 · 珠江两岸漫游'}),mode:'demo',trace:[],assistantReply:'这是广州珠江两岸的路线示例，你可以继续提出要求。'};
 const displayedPlan=()=>state.plan||samplePlan;
+$('make-travel-collection')?.addEventListener('click',()=>{const plan=state.plan;if(plan)sessionStorage.setItem('lvzang-generation-context',JSON.stringify({name:plan.title,place:plan.input?.city||plan.input?.destination||plan.city||'',date:plan.input?.date||''}));});
 try{state=readState(localStorage);}catch(error){storageHealthy=false;$('storage-recovery').hidden=false;notice(error.message);}
 function notice(message){$('toast').textContent=message;$('toast').hidden=false;clearTimeout(notice.timer);notice.timer=setTimeout(()=>$('toast').hidden=true,6500);}
 function persist(){if(!storageHealthy){notice('旧记录尚未恢复，本机保存已暂停。请先下载备份，再重置记录。');return false;}try{writeState(localStorage,state);return true;}catch(error){notice(error.message);return false;}}
@@ -20,13 +22,16 @@ $('reset-storage').onclick=()=>{try{writeState(localStorage,initialState());loca
 function status(message,error=false){$('plan-status').textContent=message;$('plan-status').classList.toggle('error',error);}
 function navigate(view){
   if(shared)return;
+  if(view==='collection'){location.href='/collection.html#world/canvas';return;}
+  if(view==='merchant'){location.href='/operator.html';return;}
   document.querySelectorAll('[data-area]').forEach(el=>el.hidden=el.dataset.area!==view);
   document.querySelectorAll('[data-nav]').forEach(el=>el.classList.toggle('active',el.dataset.nav===view));
-  if(view==='merchant')renderMerchant();
-  if(view==='explore')renderRoute();else{clearRoutePreviews();clearPreviews();if(view==='collection')renderCollection();}
+  if(view==='explore')renderRoute();else{clearRoutePreviews();clearPreviews();}
   window.scrollTo({top:0,behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});
 }
 document.addEventListener('click',e=>{const nav=e.target.closest('[data-nav]');if(nav)navigate(nav.dataset.nav);});
+function redirectOldView(){if(location.hash==='#merchant')location.replace('/operator.html');if(location.hash==='#collection')location.replace('/collection.html#world/canvas');}
+window.addEventListener('hashchange',redirectOldView);redirectOldView();
 function renderThemes(){
   $('theme-list').innerHTML=[...themes,...state.activities.map(a=>({id:a.id,city:a.city,title:a.title,subtitle:'本机商家活动 · 待现场核实',description:a.description}))].map(t=>`<button type="button" class="theme-card" data-theme="${esc(t.id)}"><small>${esc(t.city)} / 探索灵感</small><strong>${esc(t.title)}</strong><p>${esc(t.subtitle)}</p><span>↗</span></button>`).join('');
   $('theme-list').querySelectorAll('[data-theme]').forEach(button=>button.onclick=()=>{
@@ -96,10 +101,10 @@ function renderRoute(){
   $('route-meta').textContent=`${plan.stops.length}站 · 游览与转场约${plan.totalMinutes}分钟 · ${plan.transport}`;
   $('route-state').textContent=busy?'待更新':state.plan?'已确认':'示例';
   $('route-assumptions').innerHTML=[...plan.assumptions,...plan.warnings].map(t=>`<p class="assumption">${esc(t)}</p>`).join('');
-  $('route-stops').innerHTML=plan.stops.map((p,i)=>{const collected=state.collection.some(c=>c.id===p.id);return `<article class="stop-card" data-stop-card="${p.id}" tabindex="-1"><span class="stop-number">${i+1}</span><h3>${esc(p.name)}</h3><p class="stop-time">${clock(plan.input,p.estimatedStart)} — ${clock(plan.input,p.estimatedStart+p.minutes)}</p><p class="stop-story">${esc(p.story)}</p><details><summary>探索任务与纪念品</summary><p>${esc(p.task)}</p><p>${byId(p.id)?'可收藏：'+esc(p.souvenir):'可用旅行照片创作专属纪念品'}<br>${esc(p.availability)}</p></details><div class="stop-actions">${byId(p.id)?`<button class="${collected?'secondary':'primary'}" data-unlock="${p.id}">${collected?'查看 3D 纪念品':'模拟签到 · 解锁'}</button>`:'<a class="secondary" href="/#single-create">定制纪念品</a>'}<a href="https://uri.amap.com/search?keyword=${encodeURIComponent(p.city+p.name)}" target="_blank" rel="noopener">实际导航</a></div></article>`;}).join('');
-  $('route-stops').querySelectorAll('[data-unlock]').forEach(button=>button.onclick=()=>{const id=button.dataset.unlock,was=state.collection.some(c=>c.id===id);if(!state.plan)state.plan=samplePlan;unlock(state,id,plan.title);const saved=persist();renderRoute();$('collection-count').textContent=state.collection.length;showSouvenir(id);if(!saved)notice('纪念品暂留在当前页面，尚未保存；请导出展览备份。');else if(!was)notice('已通过模拟签到解锁，正式活动需配置现场核验。');});
+  $('route-stops').innerHTML=plan.stops.map((p,i)=>{const collected=state.collection.some(c=>c.id===p.id);return `<article class="stop-card" data-stop-card="${p.id}" tabindex="-1"><span class="stop-number">${i+1}</span><h3>${esc(p.name)}</h3><p class="stop-time">${clock(plan.input,p.estimatedStart)} — ${clock(plan.input,p.estimatedStart+p.minutes)}</p><p class="stop-story">${esc(p.story)}</p><details><summary>探索任务与纪念品</summary><p>${esc(p.task)}</p><p>${byId(p.id)?'可收藏：'+esc(p.souvenir):'可用旅行照片创作专属纪念品'}<br>${esc(p.availability)}</p></details><div class="stop-actions">${byId(p.id)?`<button class="${collected?'secondary':'primary'}" data-unlock="${p.id}">${collected?'查看 3D 纪念品':'模拟签到 · 解锁'}</button>`:'<a class="secondary" href="/collection.html#world/create">定制纪念品</a>'}<a href="https://uri.amap.com/search?keyword=${encodeURIComponent(p.city+p.name)}" target="_blank" rel="noopener">实际导航</a></div></article>`;}).join('');
+  $('route-stops').querySelectorAll('[data-unlock]').forEach(button=>button.onclick=()=>{const id=button.dataset.unlock,was=state.collection.some(c=>c.id===id);if(!state.plan)state.plan=samplePlan;unlock(state,id,plan.title);const saved=persist();renderRoute();showSouvenir(id);if(!saved)notice('纪念品暂留在当前页面，尚未保存；请导出展览备份。');else if(!was)notice('已通过模拟签到解锁，正式活动需配置现场核验。');});
   renderMap(plan,state.collection);clearRoutePreviews();
-  $('route-souvenirs').innerHTML=plan.stops.filter(p=>byId(p.id)).slice(0,3).map(p=>`<article class="souvenir-preview"><canvas data-route-model="${p.id}" aria-hidden="true"></canvas><div><strong>${esc(p.souvenir)}</strong><small>${state.collection.some(c=>c.id===p.id)?'已解锁 · 查看':'未解锁'}</small></div><button aria-label="查看${esc(p.souvenir)}收藏状态" data-preview-stop="${p.id}"></button></article>`).join('')||'<p class="fine">这里还没有预制纪念品。<a href="/#single-create">用照片定制自己的旅行收藏</a></p>';
+  $('route-souvenirs').innerHTML=plan.stops.filter(p=>byId(p.id)).slice(0,3).map(p=>`<article class="souvenir-preview"><canvas data-route-model="${p.id}" aria-hidden="true"></canvas><div><strong>${esc(p.souvenir)}</strong><small>${state.collection.some(c=>c.id===p.id)?'已解锁 · 查看':'未解锁'}</small></div><button aria-label="查看${esc(p.souvenir)}收藏状态" data-preview-stop="${p.id}"></button></article>`).join('')||'<p class="fine">这里还没有预制纪念品。<a href="/collection.html#world/create">用照片定制自己的旅行收藏</a></p>';
   $('route-souvenirs').querySelectorAll('canvas').forEach(canvas=>{try{const preview=createPreview(canvas),m=makeSouvenir(canvas.dataset.routeModel);preview.setMesh(m.mesh,{originalColors:m.colors,widthMm:m.widthMm,heightMm:m.heightMm,centerY:20,centerZ:0});preview.setColor(true);preview.view(false);routePreviews.push(preview);}catch{canvas.hidden=true;}});
   $('route-souvenirs').querySelectorAll('[data-preview-stop]').forEach(button=>button.onclick=()=>{if(state.collection.some(c=>c.id===button.dataset.previewStop))showSouvenir(button.dataset.previewStop);else{document.querySelector(`[data-stop-card="${button.dataset.previewStop}"]`)?.focus({preventScroll:true});notice('在对应行程站点模拟签到后，可解锁纪念品并加入展柜。');}});
   const analysis=plan.analysis;
@@ -111,21 +116,7 @@ function populateCabinet(target,items,readonly=false){
   target.innerHTML=items.map((c,i)=>{const p=byId(c.id);return `<article class="exhibit"><canvas tabindex="0" data-model="${c.id}" role="img" aria-label="${esc(p.souvenir)}三维模型，方向键或拖动旋转"></canvas><h3>${esc(p.souvenir)}</h3><small>${esc(p.city)} / ${esc(p.name)} · ${esc(c.date)}</small><p>${esc(c.story||'一站风景，一份自己的记忆。')}</p>${readonly?'':`<div class="exhibit-actions"><button data-open="${c.id}">故事与实物 ↗</button>${i>0?`<button data-move="${c.id}">移到前面 ↑</button>`:''}</div>`}</article>`;}).join('');
   target.querySelectorAll('[data-model]').forEach(canvas=>{const model=makeSouvenir(canvas.dataset.model);let preview;try{preview=createPreview(canvas);}catch{}if(preview){preview.setMesh(model.mesh,{originalColors:model.colors,widthMm:model.widthMm,heightMm:model.heightMm,centerY:20,centerZ:0});preview.setColor(true);preview.view(false);previews.push(preview);}else{canvas.insertAdjacentHTML('afterend','<p>当前设备无法显示 3D，请在支持 WebGL 的浏览器打开。</p>');}});
   target.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>showSouvenir(b.dataset.open));
-  target.querySelectorAll('[data-move]').forEach(b=>b.onclick=()=>{const i=state.collection.findIndex(c=>c.id===b.dataset.move);[state.collection[i-1],state.collection[i]]=[state.collection[i],state.collection[i-1]];persist();renderCollection();});
 }
-function renderCollection(){
-  clearPreviews();$('collection-count').textContent=state.collection.length;$('exhibition-title').value=state.title;$('exhibition-meta').textContent=`${state.collection.length} 件收藏 · 保存在当前浏览器`;
-  $('collection-empty').hidden=state.collection.length>0;$('cabinet').hidden=!state.collection.length;$('share-exhibition').disabled=!state.collection.length;$('export-exhibition').disabled=!state.collection.length;
-  populateCabinet($('cabinet'),state.collection);
-}
-$('exhibition-title').onchange=()=>{state.title=$('exhibition-title').value.trim()||'我的旅行展柜';persist();};
-$('share-exhibition').onclick=()=>{
-  const payload=encodeExhibition({title:state.title,collection:state.collection});const url=`${location.origin}/travel.html#exhibition=${payload}`;
-  $('share-panel').querySelector('.fine').textContent='链接包含展品与故事，不包含照片、攻略或订单；任何持有链接的人均可查看。'+(['localhost','127.0.0.1'].includes(location.hostname)?' 当前是本地网址，可在本机跨浏览器预览；向朋友分享前，需要将应用部署到可访问的地址。':'');
-  $('share-url').value=url;$('open-share').href=url;$('share-panel').hidden=false;$('share-panel').scrollIntoView({block:'center',behavior:'smooth'});
-};
-$('copy-share').onclick=async()=>{try{await navigator.clipboard.writeText($('share-url').value);notice('链接已复制。');}catch{$('share-url').select();notice('请复制已选中的分享链接。');}};
-$('export-exhibition').onclick=()=>download(new Blob([JSON.stringify({title:state.title,collection:state.collection},null,2)],{type:'application/json'}),'旅藏-旅行展览.json');
 function showSouvenir(id){
   current=id;const p=byId(id),item=state.collection.find(c=>c.id===id);
   $('souvenir-title').textContent=p.souvenir;$('souvenir-story').textContent=p.story;$('memory-story').value=item?.story||'';$('souvenir-status').textContent='';$('print-text').value='';
@@ -136,21 +127,13 @@ function showSouvenir(id){
 }
 $('close-souvenir').onclick=()=>$('souvenir-dialog').close();
 $('souvenir-dialog').addEventListener('close',()=>{dialogPreview?.destroy();dialogPreview=null;});
-$('save-story').onclick=()=>{const c=state.collection.find(c=>c.id===current);if(!c)return;c.story=$('memory-story').value.trim();const saved=persist();$('souvenir-status').textContent=saved?'这段记忆已保存。':'这段记忆尚未保存，请导出展览备份并保留此页面。';renderCollection();};
+$('save-story').onclick=()=>{const c=state.collection.find(c=>c.id===current);if(!c)return;c.story=$('memory-story').value.trim();const saved=persist();$('souvenir-status').textContent=saved?'这段记忆已保存。':'这段记忆尚未保存，请导出展览备份并保留此页面。';};
 $('download-stl').onclick=()=>{try{if(!$('print-width').reportValidity())throw new Error('导出尺寸需要在 40–120 mm 之间');download(new Blob([souvenirSTL(current,Number($('print-width').value))],{type:'application/octet-stream'}),`${byId(current).souvenir}.stl`);$('souvenir-status').textContent='文件已导出。请在切片器合并部件、检查支撑与结构，并先试打。';}catch(error){$('souvenir-status').textContent=error.message;}};
-$('print-form').onsubmit=e=>{e.preventDefault();try{const req=addRequest(state,{souvenirId:current,width:$('print-width').value,material:$('print-material').value,text:$('print-text').value});const saved=persist();$('souvenir-status').textContent=saved?`需求已保存到商家工作台 · ${req.status}。未付款、未生产。`:'需求暂留在内存，未能保存；请保留此页面。';}catch(error){$('souvenir-status').textContent=error.message;}};
-function renderMerchant(){
-  $('merchant-stats').innerHTML=[['主题活动',state.activities.length],['定制需求',state.requests.length],['已录入报价',state.requests.reduce((n,r)=>n+(r.quotes?.length||0),0)]].map(([label,value])=>`<div><strong>${value}</strong><span>${label} · 本机记录</span></div>`).join('');
-  $('activity-list').innerHTML=state.activities.map(a=>`<div class="source-entry"><strong>${esc(a.title)}</strong><p>${esc(a.city)} · ${esc(a.description)}</p><button class="text-button" data-activity="${a.id}">用 Agent 策划这场活动 ↗</button></div>`).join('');
-  $('activity-list').querySelectorAll('[data-activity]').forEach(b=>b.onclick=()=>{const a=state.activities.find(a=>a.id===b.dataset.activity);navigate('explore');$('destination').value=a.city;destinationTouched=true;$('travel-brief').value=a.description;$('hours').value='';runPlan(false);});
-  $('request-list').innerHTML=state.requests.length?state.requests.map(r=>`<article class="request-card"><strong>${esc(byId(r.souvenirId)?.souvenir||'纪念品')} · ${esc(r.status)}</strong><p>${esc(r.width)} mm / ${esc(r.material)}<br>定制文字：${esc(r.text||'无')}</p><small>本机需求 · 尚未付款或发送工厂</small>${(r.quotes||[]).slice().sort((a,b)=>a.price-b.price).map(q=>`<div class="quote-row">${esc(q.supplier)} · ¥${q.price.toFixed(2)} / 件 · ${esc(q.days)} 天<br>${esc(q.note||'价格是否含后处理与运费，请与供应商确认。')}</div>`).join('')}<form data-quote="${r.id}"><div class="quote-fields"><label>供应商<input name="supplier" maxlength="80" required placeholder="实际询价对象"></label><label>报价 / 元<input name="price" type="number" min="0.01" max="100000" step="0.01" required></label><label>交期 / 天<input name="days" type="number" min="1" max="365" required></label><label>包含费用与备注<input name="note" maxlength="200" placeholder="材料、后处理、运费…"></label></div><button class="secondary" type="submit">记录供应商报价</button></form></article>`).join(''):'<p class="fine">还没有定制需求。游客可以在已解锁纪念品中提交规格与定制文字。</p>';
-  $('request-list').querySelectorAll('[data-quote]').forEach(form=>form.onsubmit=e=>{e.preventDefault();try{const values=new FormData(form);addQuote(state,form.dataset.quote,Object.fromEntries(values));const saved=persist();renderMerchant();notice(saved?'报价已记录；仍需用户确认并与供应商落实生产。':'报价暂留在当前页面，尚未保存。');}catch(error){notice(error.message);}});
-}
-$('activity-form').onsubmit=e=>{e.preventDefault();if(state.activities.length>=12)return notice('试点版本最多保留 12 个本机活动。');state.activities.push({id:crypto.randomUUID(),title:$('activity-title').value.trim(),city:$('activity-city').value,description:$('activity-description').value.trim()});const saved=persist();renderThemes();renderMerchant();$('activity-title').value='';$('activity-description').value='';notice(saved?'活动已保存，可在探索入口选择。':'活动暂留在当前页面，尚未保存；请保留活动原文。');};
+$('print-form').onsubmit=async e=>{e.preventDefault();try{$('souvenir-dialog').close();const user=await requestUserIdentity();if(!user||user.activeRole!=='user')return;const place=byId(current);sessionStorage.setItem('lvzang-order-draft',JSON.stringify({title:place.souvenir,place:place.city,raw:[$('memory-story').value,`尺寸：${$('print-width').value} mm；材料：${$('print-material').value}；定制文字：${$('print-text').value}`].filter(Boolean).join('\n')}));location.href='/orders.html#new';}catch(error){$('souvenir-status').textContent=error.message;$('souvenir-dialog').showModal();}};
 function loadShared(){
   const match=location.hash.match(/^#exhibition=(.*)$/);if(!match)return false;
   try{shared=decodeExhibition(match[1]);document.querySelectorAll('[data-area]').forEach(el=>el.hidden=true);document.querySelector('.site-header nav').hidden=true;$('shared-section').hidden=false;$('shared-title').textContent=shared.title;clearPreviews();populateCabinet($('shared-cabinet'),shared.collection,true);return true;}catch(error){notice(error.message);$('plan-status').textContent=error.message;return false;}
 }
-renderThemes();renderNotes();$('collection-count').textContent=state.collection.length;
+renderThemes();renderNotes();
 if(!loadShared()){initWorkspace();renderConstraints(displayedPlan().input);if(state.plan){$('destination').value=state.plan.city;remember('assistant',state.plan.assistantReply||state.plan.changeSummary);finishPhases(state.plan);chatMessage('assistant',state.plan.assistantReply||state.plan.changeSummary,'上次保存的方案');canvasStatus('上次方案已恢复，继续说说你的想法');}navigate('explore');}
 fetch('/api/config').then(r=>r.json()).then(config=>{if(!config.configured){$('agent-mode').querySelector('[value="ai"]').textContent='AI Agent 协作 · 未配置';}else if(!modeTouched){$('agent-mode').value='ai';}modeNote();}).catch(()=>{});

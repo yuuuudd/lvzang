@@ -10,7 +10,7 @@ export async function runDesignAgent(body,{build,decide,plan}={}){
   }
   let result,decision;
   for(let round=0;round<2;round++){
-    result=await build({glb:body.glb,settings,scene,mounts:body.mounts??true});
+    result=await build({glb:body.glb,settings,scene,productType:input.productType,baseMode:input.baseMode,mounts:input.productType?input.productType==='magnet':body.mounts??true});
     versions.push(body.glb?{report:result.report,label:round?'修正后':'初始模型'}:{...result,scene:{...scene},label:round?'修正后':'初始模型'});
     trace.push({action:'inspect',reason:`第 ${round+1} 次检查`,checks:result.report.checks});
     decision=decide?await decide({input,design:body.design,settings,scene,report:result.report,round}):{

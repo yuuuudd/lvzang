@@ -1,4 +1,5 @@
 import { validateInput, validateDesign, validateBrief } from './public/src/design.js';
+import {productPrompt} from './public/src/product-rules.js';
 const base='https://api.tripo3d.ai/v2/openapi';
 const baseV3='https://openapi.tripo3d.ai/v3';
 const styles={enamel:'精品珐琅文创插画，奶油底色、饱和而协调的色块、圆润深色描边，丰富但不过密',clay:'圆润手工黏土玩具风格，柔和粉彩，大块简洁形体，避免微小细节',paper:'复古旅行拼贴风格，暖色丝网版画色块，地标、票根与飘带重叠穿插，轮廓连为一体',ceramic:'陶瓷釉彩风格，温润釉面、清晰的大面积色块和厚实圆角，不画细碎开片',wood:'木雕风格，温暖木色、顺着实体轮廓的宽刻槽和简洁层次，不画细密木纹'};
@@ -20,6 +21,12 @@ export function artPrompt(body){
   const event=body.preset?(body.image||input.story
     ?`活动预设必须同时可见：${design.brief?.selectedProposalId?`按所选构图决定主次；${body.preset.venue}场地线索，照片可见场地应保留，预设入口仅作可选背景；`:`有观众素材时观众为主角；${body.preset.venue}建筑入口；`}${body.preset.activity}${solo?'用一人操作电脑表达，不要添加其他人物；':'用电脑和协作动作表达；'}${body.preset.character}作为较小的陪衬。不得只用文字代替这三项造型。`
     :`活动预设必须同时可见：${body.preset.venue}建筑入口为主体；${body.preset.activity}用电脑和协作桌面表达；${body.preset.character}作为较小的陪衬。不添加观众人物或虚构参与经历，不得只用文字代替这三项造型。`):'';
+  if(input.productType==='figurine'){
+    const brief=body.sculpture?validateBrief(design.brief):null;
+    const fixed=`${productPrompt('figurine',body.settings?.widthMm||60,input.baseMode)}全件造型：${sculptureStyles[body.style]}${lettering}以本次来源照片、故事和指定地点为准，不编造隐藏细节或用户经历。${input.place?'指定地点：'+input.place+'。':''}${refs}${body.reference?'基于上一版修改，保留已确认主体。修改要求：'+input.instruction:''}纯净背景，单件产品，禁止多视图、拼版和尺寸标注。`;
+    if(fixed.length>1024)throw Error('提示词过长，请精简修改要求');
+    return fixed+'故事场景：'+Array.from(brief?.imagePrompt||input.story||design.reason).slice(0,1024-fixed.length-5).join('');
+  }
   if(body.sculpture){
     const brief=validateBrief(design.brief);
     let scene=brief.imagePrompt;
@@ -28,7 +35,7 @@ export function artPrompt(body){
     scene=scene.replace(/(?:底部|下方)?(?:唯一|大字|文字)?(?:名牌|铭牌|文字牌)[^，。；]*[，。；]?/gu,'');
 const required=`制作${body.settings?.widthMm||60}毫米立体冰箱贴正面参考图，单件略侧视、纯净背景。人物为主体时用大头卡通肖像，风景为主体时让场景占主要面积；后方仅1至3块贴靠主体的紧凑厚实体场景，圆润厚边、错层、少量镂空，全部相连。禁止独立薄竖板、高耸背景墙及延伸到画幅边缘的背景片；建筑若是主角，也要画完整厚实体小模型，不能画单面幕墙。有照片或预设素材时保留人物肤色、衣着、物件和场景可见原色；否则按所选风格自然配色。打印耗材色数不限制参考图。${lettering}禁止密集花纹和细碎配件；小细节合并或删去。手指并成厚实手形，手臂贴近身体或场景支撑，不留悬空细枝。${input.place?`用户指定地点${input.place}，不得替换成其他城市地标；`:body.preset?`主题预设地点${body.preset.venue}，作为活动场地；`:'无可靠地点时不画真实城市地标；'}${input.landmark?`地标特征“${input.landmark}”；`:''}未核验细节不编造。${body.image?`${input.photoType==='portrait'?'照片以人物为主体':input.photoType==='landscape'?'照片以风景为主体':'按故事与照片自动判断人物或风景主体'}；${photoRole}按照片提取可辨特征和关键原色，再以选定风格重新造型；不直接贴照片或复制照片背景光影；半身照默认半身，不补腿脚${input.place?'；冲突背景改为指定地点':''}。`:''}如有背包，背包贴背，肩带在衣外绕肩，不穿透身体。背面沿主体轮廓收拢为连续平整实体，不在主体后另立板片。禁止多视图、拼版和尺寸标注。${body.reference?'仅参考上版主体和非地点细节，删除旧版文字与名牌。':''}`;
     const prefix=event+`全件造型规则：${sculptureStyles[body.style]}故事场景：`;
-    const fixed=`参考依据：${refs}造型与原色约束覆盖上述文字与细节描述：${required}`;
+    const fixed=`参考依据：${refs}造型与原色约束覆盖上述文字与细节描述：${required}${input.productType==='magnet'?productPrompt('magnet',body.settings?.widthMm||60):''}`;
     const room=1024-prefix.length-fixed.length;
     if(room<0)throw new Error('扩写提示词过长，请精简后重试');
     return prefix+Array.from(scene).slice(0,room).join('')+fixed;

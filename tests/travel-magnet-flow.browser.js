@@ -1,0 +1,30 @@
+import assert from 'node:assert/strict';
+import {chromium} from 'playwright';
+import {mkdir,readFile} from 'node:fs/promises';
+import {createApp} from '../server.js';
+const server=createApp({key:'',tripoKey:''});await new Promise(r=>server.listen(0,'127.0.0.1',r));const root=`http://127.0.0.1:${server.address().port}`;
+const browser=await chromium.launch({channel:'chrome',headless:true});await mkdir('artifacts/keepsakes',{recursive:true});
+try{
+ const context=await browser.newContext({viewport:{width:1440,height:1000}}),page=await context.newPage(),errors=[];
+ page.on('pageerror',e=>errors.push(e.message));await page.goto(root+'/collection.html?legacy=1');await page.getByRole('button',{name:'浏览示例作品',exact:true}).first().click();
+ await page.locator('.wall-magnet').first().waitFor();await page.screenshot({path:'artifacts/keepsakes/01-map.png',fullPage:true});
+ await page.getByRole('link',{name:'收藏柜',exact:true}).click();await page.locator('.cabinet-hero').waitFor();await page.screenshot({path:'artifacts/keepsakes/02-cabinet.png',fullPage:true});
+ await page.locator('.cabinet-hero .primary[data-open]').click();await page.locator('#model-canvas').waitFor();await page.waitForFunction(()=>document.querySelector('#model-canvas')?.dataset.ready==='true');
+ await page.screenshot({path:'artifacts/keepsakes/03-miniature.png',fullPage:true});
+ await page.getByRole('button',{name:'翻开我们的回忆',exact:true}).click();await page.locator('.memory-book').waitFor();await page.screenshot({path:'artifacts/keepsakes/04-memory.png',fullPage:true});
+ await page.getByRole('button',{name:'下一页',exact:true}).click();assert.match(await page.locator('.page-count').textContent(),/02/);await page.keyboard.press('Escape');await page.locator('#collection-dialog').waitFor({state:'hidden'});
+ await page.getByRole('button',{name:'保存我的版本',exact:true}).click();await page.waitForFunction(()=>!location.hash.includes('demo-'));
+ await page.getByRole('button',{name:'翻开我们的回忆',exact:true}).click();await page.getByRole('button',{name:'添加我的回忆',exact:true}).click();
+ await page.locator('[name=story]').fill('属于我的一段真实记忆');await page.locator('[name=placeName]').fill('珠江');
+ await page.locator('[name=photo]').setInputFiles('public/assets/keepsakes/memory-1.webp');await page.locator('[data-uploaded-photo]').waitFor();await page.getByRole('button',{name:'保存这段回忆',exact:true}).click();
+ await page.waitForSelector('.memory-book');await page.reload();await page.locator('.memory-book').waitFor();for(let n=2;n<=4;n++){await page.getByRole('button',{name:'下一页',exact:true}).click();await page.waitForFunction(n=>document.querySelector('.page-count')?.textContent.trim().startsWith(String(n).padStart(2,'0')),n);}assert.match(await page.locator('.memory-story').textContent(),/真实记忆/);await page.keyboard.press('Escape');await page.locator('#collection-dialog').waitFor({state:'hidden'});
+ await page.getByRole('button',{name:'定制这件纪念品',exact:true}).click();await page.locator('[name=text]').fill('下一站，也一起');await page.screenshot({path:'artifacts/keepsakes/05-customize.png',fullPage:true});await page.getByRole('button',{name:'提交定制需求',exact:true}).click();await page.waitForFunction(()=>document.querySelector('#collection-toast')?.textContent.includes('本机'));await page.keyboard.press('Escape');await page.locator('#collection-dialog').waitFor({state:'hidden'});
+ const [stl]=await Promise.all([page.waitForEvent('download'),page.getByRole('button',{name:'导出当前模型 STL',exact:true}).click()]);const bytes=await readFile(await stl.path());assert.equal(bytes.length,84+bytes.readUInt32LE(80)*50);
+ const [card]=await Promise.all([page.waitForEvent('download'),page.getByRole('button',{name:'分享这件作品',exact:true}).click()]);assert.match(card.suggestedFilename(),/png$/);
+ await page.getByRole('button',{name:'收藏备份与定制需求',exact:true}).click();const [backup]=await Promise.all([page.waitForEvent('download'),page.getByRole('button',{name:'导出完整备份',exact:true}).click()]);await page.keyboard.press('Escape');await page.locator('#collection-dialog').waitFor({state:'hidden'});
+ const other=await browser.newPage();await other.goto(root+'/collection.html?legacy=1');await other.getByRole('button',{name:'收藏备份与定制需求',exact:true}).click();await other.locator('[name=backup]').setInputFiles(await backup.path());await other.waitForFunction(()=>document.querySelector('#collection-toast')?.textContent.includes('已恢复'));await other.keyboard.press('Escape');assert.ok(await other.locator('[data-open]').count()>0);await other.close();
+ await page.getByRole('link',{name:'地图贴墙',exact:true}).click();await page.getByRole('button',{name:'浏览示例作品',exact:true}).first().click();await page.locator('.wall-magnet[data-city="广州"]').click();await page.waitForFunction(()=>document.querySelector('#model-canvas')?.dataset.ready==='true');const c=page.locator('#model-canvas'),before=await c.evaluate(c=>c.toDataURL());await c.focus();await page.keyboard.press('ArrowRight');assert.notEqual(await c.evaluate(c=>c.toDataURL()),before);await page.screenshot({path:'artifacts/keepsakes/06-magnet.png',fullPage:true});
+ await page.setViewportSize({width:390,height:844});await page.screenshot({path:'artifacts/keepsakes/07-mobile-detail.png',fullPage:true});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+ await page.getByRole('button',{name:'翻开这枚冰箱贴的回忆',exact:true}).click();await page.screenshot({path:'artifacts/keepsakes/08-mobile-memory.png',fullPage:true});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.keyboard.press('Escape');await page.locator('#collection-dialog').waitFor({state:'hidden'});
+ assert.deepEqual(errors,[]);console.log('PASS: both concepts, actual 3D, memories/photos persistence, customization, STL, share card, full ZIP restore, mobile.');
+}finally{await browser.close();await new Promise(r=>server.close(r));}

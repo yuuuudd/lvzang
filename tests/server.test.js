@@ -80,7 +80,7 @@ test('local API validates inputs, protects secrets and calls the configured mode
   const root=`http://127.0.0.1:${server.address().port}`;
   const post=(body,origin=root)=>fetch(root+'/api/design',{method:'POST',headers:{'Content-Type':'application/json',Origin:origin},body:JSON.stringify(body)});
   try {
-    assert.deepEqual(await (await fetch(root+'/api/config')).json(),{configured:true,model:'deepseek-flash',tripoConfigured:false,tripoModel:'chat_image_2.5_sunburst',developerBatch3D:false,presets:[{id:'shenzhen-hackathon',name:'深圳啤酒小镇 · 黑客松'}]});
+    assert.deepEqual(await (await fetch(root+'/api/config')).json(),{configured:true,model:'deepseek-flash',tripoConfigured:false,tripoModel:'chat_image_2.5_sunburst',developerBatch3D:false,collectionGeneration:false,presets:[{id:'shenzhen-hackathon',name:'深圳啤酒小镇 · 黑客松'}]});
     assert.equal((await fetch(root+'/.env')).status,404);
     assert.equal((await post({story:'旅行'},'https://evil.example')).status,403);
     assert.equal((await post({date:'2026-02-30'})).status,400);

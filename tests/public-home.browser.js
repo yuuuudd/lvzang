@@ -1,0 +1,60 @@
+import assert from 'node:assert/strict';
+import {chromium} from 'playwright';
+import {mkdtemp,mkdir,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {createApp} from '../server.js';
+const dir=await mkdtemp(join(tmpdir(),'public-ui-')),server=createApp({accountsEnabled:true,testRoles:true,accountDir:dir,key:'test',tripoKey:'test',fetchImpl:async()=>{throw Error('Unexpected external request in local UI check');}});
+await new Promise(r=>server.listen(0,'127.0.0.1',r));
+const base='http://127.0.0.1:'+server.address().port,browser=await chromium.launch({channel:'chrome',headless:true}),page=await browser.newPage({viewport:{width:1440,height:1000},reducedMotion:'reduce'}),errors=[],paid=[];
+page.on('pageerror',e=>errors.push(e.message));page.on('request',r=>{if(r.method()==='POST'&&/\/api\/(artwork|model|collection-jobs|design)/.test(r.url()))paid.push(r.url());});
+await mkdir('artifacts/public-home',{recursive:true});
+try{
+ await page.goto(base+'/');await page.getByRole('heading',{name:/把你和风景/}).waitFor();
+ assert.equal(await page.locator('input[type=password]').count(),0);assert.equal(await page.locator('.account-bar').count(),0);
+ await page.screenshot({path:'artifacts/public-home/home-desktop.png',fullPage:true});
+ const image=page.locator('.template-picture img').first(),asset=await image.getAttribute('src');
+ await page.getByRole('button',{name:'合集图',exact:true}).click();assert.notEqual(await page.locator('.template-picture img').first().getAttribute('src'),asset);
+ await page.getByRole('button',{name:'3D 资产',exact:true}).click();
+ await page.getByRole('link',{name:'体验人物 × 江南园林',exact:true}).click();await page.getByRole('heading',{name:'人物 × 江南园林 · 模板体验'}).waitFor();
+ await page.locator('#template-title').fill('和朋友的江南回忆');await page.locator('#template-story').fill('我们一起走过园林的小桥。');
+ await page.locator('#template-photos').setInputFiles('public/assets/keepsakes/memory-1.webp');await page.locator('.person-photos img').waitFor();
+ await page.getByRole('button',{name:'合集图',exact:true}).click();await page.locator('.template-collage img').waitFor();assert.match(await page.locator('.template-collage').textContent(),/小桥/);
+ await page.getByRole('button',{name:'旋转示例模型',exact:true}).click();await page.locator('.template-preview canvas').waitFor();assert.ok(await page.locator('.template-preview canvas').evaluate(c=>c.width>0&&c.height>0));
+ const canvas=page.locator('.template-preview canvas'),before=await canvas.evaluate(c=>c.toDataURL());await canvas.press('ArrowRight');assert.notEqual(await canvas.evaluate(c=>c.toDataURL()),before);await page.getByRole('button',{name:'放大模型',exact:true}).click();await page.getByRole('button',{name:'复位',exact:true}).click();
+ await page.getByRole('button',{name:'保存草稿',exact:true}).click();await page.locator('.identity-menu[open]').waitFor();await page.locator('[data-identity-role=user]').press('Escape');assert.equal(await page.locator('#template-story').inputValue(),'我们一起走过园林的小桥。');
+ await page.getByRole('button',{name:'保存草稿',exact:true}).click();await page.locator('[data-identity-role=user]').click();await page.waitForURL('**/collection.html#world/canvas');await page.locator('.trip-cover-card').waitFor();
+ assert.match(await page.locator('.trip-cover-info h2').textContent(),/江南回忆/);assert.equal(await page.locator('.account-bar').count(),0);
+ await page.screenshot({path:'artifacts/public-home/profile-desktop.png',fullPage:true});
+ assert.equal(await page.getByRole('link',{name:'时间轴',exact:true}).count(),0);
+ assert.equal(await page.getByRole('link',{name:'地图',exact:true}).count(),0);
+ await page.getByRole('button',{name:'合集图',exact:true}).click();assert.match(await page.locator('.trip-cover-image img').getAttribute('src'),/^blob:/);
+ await page.getByRole('link',{name:'自由画布',exact:true}).click();await page.reload();await page.locator('.trip-cover-card').waitFor();
+ await page.getByRole('button',{name:'打开合集',exact:true}).click();await page.locator('.exhibit-model canvas').waitFor();await page.getByRole('button',{name:'查看照片与故事',exact:true}).click();await page.locator('.photo-story-grid img').waitFor();assert.match(await page.locator('.photo-story-grid').textContent(),/小桥/);
+ await page.goto(base+'/');await page.setViewportSize({width:390,height:844});await page.locator('.template-card').first().waitFor();assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.screenshot({path:'artifacts/public-home/home-mobile.png',fullPage:true});
+ await page.goto(base+'/collection.html#world/map');await page.locator('.personal-viewbar').waitFor();assert.ok(page.url().endsWith('#world/canvas'));assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.screenshot({path:'artifacts/public-home/profile-mobile.png',fullPage:true});
+ await page.goto(base+'/#template/garden');await page.locator('.template-form').waitFor();assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.screenshot({path:'artifacts/public-home/template-mobile.png',fullPage:true});
+ await page.locator('.identity-menu summary').click();await page.locator('[data-identity-role=operator]').click();await page.waitForURL('**/operator.html');await page.locator('#operator-root').waitFor();assert.match(await page.locator('.identity-menu summary').textContent(),/经营者/);
+ await page.locator('.identity-menu summary').click();await page.getByRole('button',{name:'退出体验',exact:true}).click();await page.waitForURL(base+'/');await page.locator('.identity-menu summary').waitFor();assert.equal(await page.locator('.identity-menu summary').textContent(),'选择身份');
+ assert.deepEqual(paid,[]);
+ // Opening the current profile after choosing an identity must reload its store.
+ await page.goto(base+'/collection.html#world/canvas');await page.locator('.personal-viewbar').waitFor();
+ await page.locator('.identity-menu summary').click();await page.locator('[data-identity-role=user]').click();
+ await page.waitForFunction(()=>document.querySelector('.identity-menu summary')?.textContent==='我的回忆',{},{timeout:3000});
+ // Old-task adoption may be slow; it must not hold the whole profile at loading.
+ await page.evaluate(async()=>{const {accountInfo}=await import('/src/account-client.js'),{openKeepsakeStore}=await import('/src/travel-keepsake-store.js'),s=await openKeepsakeStore();try{await s.setMeta('startup-check',{creationJob:{id:'old-local-task'}});localStorage.removeItem('lvzang-tasks-adopted:'+accountInfo.user.id);}finally{s.close();}});
+ let releaseAdoption,finishAdoption;const adoptionGate=new Promise(r=>releaseAdoption=r),adoptionDone=new Promise(r=>finishAdoption=r);
+ await page.route('**/api/auth/adopt-local',async route=>{await adoptionGate;await route.fulfill({json:{ok:true}});finishAdoption();});
+ try{await page.reload({waitUntil:'domcontentloaded'});await page.locator('.personal-viewbar').waitFor({timeout:3000});}finally{releaseAdoption();}
+ await adoptionDone;
+ await page.unroute('**/api/auth/adopt-local');
+ await page.evaluate(async()=>{const {openKeepsakeStore}=await import('/src/travel-keepsake-store.js'),s=await openKeepsakeStore();try{await s.setMeta('startup-check',null);}finally{s.close();}});
+ await page.locator('.identity-menu summary').click();await page.getByRole('button',{name:'退出体验',exact:true}).click();await page.waitForURL(base+'/');
+ await page.goto(base+'/collection.html#world/create');await page.locator('[name=photo]').setInputFiles('public/assets/keepsakes/memory-1.webp');await page.waitForFunction(()=>!document.querySelector('[data-action=save-upload]').disabled);
+ await page.getByRole('button',{name:'保存到画布',exact:true}).click();await page.locator('[data-identity-role=user]').click();await page.locator('.trip-cover-card').first().waitFor();
+ await page.getByRole('button',{name:'添加旅行回忆',exact:true}).first().click();await page.locator('[name=photo]').setInputFiles('public/assets/keepsakes/memory-1.webp');await page.waitForFunction(()=>!document.querySelector('[data-action=generate-upload]').disabled);
+ let reachedApi=false;await page.route('**/api/collection-jobs',async route=>{if(route.request().method()==='POST'){reachedApi=true;await route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'本地检查：生成服务暂不可用，素材已保留'})});}else await route.continue();});
+ const submitted=page.waitForRequest(r=>r.method()==='POST'&&r.url().endsWith('/api/collection-jobs'));await page.getByRole('button',{name:'一键制作旅行合集',exact:true}).click();await submitted;await page.getByRole('button',{name:'恢复查询',exact:true}).waitFor();assert.ok(reachedApi,'generation must use the selected user store after guest save');
+ const staged=await page.evaluate(async()=>{const {openKeepsakeStore}=await import('/src/travel-keepsake-store.js'),s=await openKeepsakeStore();try{const jobs=await s.getMeta('generation-jobs'),input=await s.getMeta('generation-input:'+jobs.at(-1)),data=await s.dump();return {photos:input.photos.length,shells:data.keepsakes.filter(k=>k.collectionShell).length,sourceSaved:data.photos.some(p=>p.id===input.photos[0].id)};}finally{s.close();}});assert.deepEqual(staged,{photos:1,shells:1,sourceSaved:true},'uncertain submission retains source and resumable user draft');
+ assert.deepEqual(errors,[]);console.log('PASS public homepage, covers, uploads, real rotation, cancel picker, template save/reload, timeline/map, model/story details, operator entry/exit, guest save then resumable generation with source retained, desktop/mobile; no paid external calls.');
+}catch(e){console.error('Browser evidence:',errors,await page.locator('body').innerText());await page.screenshot({path:'artifacts/public-home/failure.png',fullPage:true});throw e;}finally{await browser.close();await new Promise(r=>server.close(r));await rm(dir,{recursive:true,force:true});}

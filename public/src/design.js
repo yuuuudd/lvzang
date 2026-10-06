@@ -1,3 +1,4 @@
+import {validateProductType,validateBaseMode} from './product-rules.js';
 export const THEMES = { travel: '旅途留念', family: '亲情同行', friends: '好友同行', love: '心动同行' };
 const motifs = ['paths','heart','star','waves'];
 const layouts = ['arch','portrait','landscape'];
@@ -23,7 +24,8 @@ export function validateInput(input = {}) {
   if (date && (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date)) || new Date(date).toISOString().slice(0,10) !== date)) throw new Error('请输入有效日期');
   const photoType = input.photoType ?? 'auto';
   if (!['auto','portrait','landscape'].includes(photoType)) throw new Error('请选择照片主体');
-  return { story, instruction, place, labelText, date, photoType, ...(landmark?{landmark}:{}) };
+  const productType=validateProductType(input.productType),baseMode=validateBaseMode(input.baseMode);
+  return { story, instruction, place, labelText, date, photoType, ...(landmark?{landmark}:{}),...(productType?{productType,baseMode}:{}) };
 }
 
 export function validateCaption(caption) {

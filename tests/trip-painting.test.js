@@ -43,14 +43,15 @@ test('Vercel painting regions use an editable box without loading SAM',async()=>
   }finally{if(previous===undefined)delete process.env.VERCEL;else process.env.VERCEL=previous;}
 });
 
-test('trip painting API preserves task and validates 2–9 distinct source elements',async()=>{
+test('trip painting API preserves task and validates 1–9 distinct source elements',async()=>{
   const fetchImpl=async(url,init)=>url.endsWith('/files')?Response.json({code:0,data:{file_token:'guide-token'}}):url.endsWith('/generation/image-to-image')?Response.json({code:0,data:{task_id:'painting-2'}}):Response.json({code:0,data:{status:'success',output:{generated_image_url:'https://cdn.tripo3d.ai/a.png'}}});
   await withServer({tripoKey:'demo',fetchImpl},async({post})=>{
     assert.equal((await post('/api/trip-painting',{guide:image,memories:points(2),coverId:'p1',story:'河边日落'})).status,202);
     assert.equal((await post('/api/trip-painting',{guide:image,memories:points(2),coverId:'p1',name:5})).status,400);
     assert.equal((await post('/api/trip-painting',{guide:image,memories:points(2),coverId:'p1',date:'下周末'})).status,400);
     assert.equal((await post('/api/trip-painting',{guide:image,memories:points(2),coverId:'p1',story:'x'.repeat(1001)})).status,400);
-    assert.equal((await post('/api/trip-painting',{guide:image,memories:points(1),coverId:'p1'})).status,400);
+    assert.equal((await post('/api/trip-painting',{guide:image,memories:points(1),coverId:'p1'})).status,202);
+    assert.equal((await post('/api/trip-painting',{guide:image,memories:[],coverId:'p1'})).status,400);
     assert.equal((await post('/api/trip-painting',{guide:image,memories:[points(2)[0],points(2)[0]],coverId:'p1'})).status,400);
     assert.equal((await post('/api/trip-painting',{guide:image,memories:points(2),coverId:'p1'},'http://example.com')).status,403);
   });
