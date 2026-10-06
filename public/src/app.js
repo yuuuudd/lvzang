@@ -243,6 +243,7 @@ async function buildModel(job,signal){
 }
 $('build-reference').addEventListener('click',async()=>{
   if(!referenceJob||controller||historyLoading)return;
+  if(operatorCreationContext&&!operatorCreationContext.modelingAllowed)return status('先返回经营者工作台，把参考方案发送给用户确认；确认后再生成三维。',true);
   controller=new AbortController();busy(true);
   try{await buildModel(referenceJob,controller.signal);}
   catch(e){status(e.name==='AbortError'?'已停止等待，可继续取生成结果。':e.message,true);}
