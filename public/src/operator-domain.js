@@ -3,13 +3,18 @@ import {validateProductType,validateBaseMode,productRulesVersion} from './produc
 
 export const sourceLabels={'self-test':'团队自测',trial:'真实试用',business:'真实业务',demo:'演示',customer:'用户提交'};
 export const statusLabels={brief:'待完善',make:'待制作',making:'制作中',review:'待审核',delivery:'待交付',delivered:'已交付'};
+export const serviceModes={assisted:'需要协助创作',production:'已有 3D 资产'};
+export const productionStatusLabels={conversation:'待沟通',waiting:'等待用户',checking:'待生产确认',quote:'待报价',proofing:'打样中',making:'制作中',delivery:'待交付',delivered:'已交付'};
 const idValid=v=>typeof v==='string'&&/^[a-zA-Z0-9_-]{1,100}$/.test(v);
 const text=(v,max,label)=>{if(typeof v!=='string'||v.length>max)throw Error(label+'过长或格式无效');return v;};
 const copy=c=>structuredClone(c);
 export function validateCommission(c){
+  if(!c)throw Error('委托信息无效');
+  c.serviceMode??='assisted';c.storySynced??=false;c.userConfirmedAt??=null;c.productionStatus??='conversation';c.sizeCm??=12;c.material??='树脂';c.quantity??=1;c.productionNote??='';
   validateProductType(c?.productType);validateBaseMode(c?.baseMode);
-  if(!c||!idValid(c.id)||!sourceLabels[c.source]||!statusLabels[c.status]||!['digital3d','image','physical'].includes(c.deliveryType))throw Error('委托信息无效');
-  for(const [key,max] of Object.entries({title:80,customer:80,raw:3000,summary:3000,internalNote:2000,owner:40,place:80,date:30,due:30,style:30,feedback:2000,deliveryNote:3000}))text(c[key]??'',max,'委托内容');
+  if(!idValid(c.id)||!sourceLabels[c.source]||!statusLabels[c.status]||!serviceModes[c.serviceMode]||!productionStatusLabels[c.productionStatus]||!['digital3d','image','physical'].includes(c.deliveryType))throw Error('委托信息无效');
+  for(const [key,max] of Object.entries({title:80,customer:80,raw:3000,summary:3000,internalNote:2000,owner:40,place:80,date:30,due:30,style:30,feedback:2000,deliveryNote:3000,material:40,productionNote:2000}))text(c[key]??'',max,'委托内容');
+  if(typeof c.storySynced!=='boolean'||c.userConfirmedAt!==null&&!Number.isFinite(c.userConfirmedAt)||!Number.isFinite(c.sizeCm)||c.sizeCm<=0||c.sizeCm>1000||!Number.isInteger(c.quantity)||c.quantity<1||c.quantity>100)throw Error('生产信息无效');
   if(!c.title?.trim())throw Error('请填写委托名称');
   if(!Array.isArray(c.photoIds)||c.photoIds.length>9||c.photoIds.some(v=>!idValid(v)))throw Error('来源照片无效');
   if(!Number.isInteger(c.revision)||c.revision<0||!Number.isInteger(c.briefVersion)||c.briefVersion<1||!Number.isInteger(c.assetRevision)||c.assetRevision<0)throw Error('委托版本无效');
@@ -20,16 +25,25 @@ export function validateCommission(c){
   return c;
 }
 export function createCommission(body={}){
-  const now=Date.now();return validateCommission({id:crypto.randomUUID(),revision:0,source:body.source||'self-test',sourceKey:body.sourceKey||'',title:body.title||'新的文创委托',customer:'',owner:'我',raw:'',summary:'',internalNote:'',place:'',date:'',due:'',style:'clay',photoIds:[],productType:null,baseMode:'none',productRulesVersion,deliveryType:'digital3d',status:'brief',briefVersion:1,confirmedVersion:0,assetRevision:0,selection:null,review:null,costs:[],minutes:0,feedback:'',deliveryNote:'',exports:[],log:[],createdAt:now,updatedAt:now,...body});
+  const now=Date.now();return validateCommission({id:crypto.randomUUID(),revision:0,source:body.source||'self-test',sourceKey:body.sourceKey||'',title:body.title||'新的文创委托',customer:'',owner:'我',raw:'',summary:'',internalNote:'',place:'',date:'',due:'',style:'clay',photoIds:[],productType:null,baseMode:'none',productRulesVersion,deliveryType:'physical',status:'brief',serviceMode:'assisted',storySynced:false,userConfirmedAt:null,productionStatus:'conversation',sizeCm:12,material:'树脂',quantity:1,productionNote:'',briefVersion:1,confirmedVersion:0,assetRevision:0,selection:null,review:null,costs:[],minutes:0,feedback:'',deliveryNote:'',exports:[],log:[],createdAt:now,updatedAt:now,...body});
+}
+export function createDemoCommissions(existing=[]){
+  const ids=new Set(existing.map(c=>c.id)),at=Date.parse('2026-10-05T12:00:00+08:00'),common={source:'demo',customer:'演示用户',storySynced:true,productType:'figurine',baseMode:'round',deliveryType:'physical',createdAt:at,updatedAt:at};
+  return [
+    createCommission({...common,id:'demo-assisted-douyin',title:'抖音创作者大会',serviceMode:'assisted',raw:'这次嘉兴之旅，从抖音创作者大会的热烈现场开始。夜晚走进水乡，灯光、河道与现场记忆交织在一起。',summary:'保留大会现场和嘉兴夜游的氛围，制作一件桌面纪念摆件。',productionStatus:'waiting',demoImage:'/assets/chikan-style-sample.png',demoPhotos:['/assets/keepsakes/memory-1.webp','/assets/keepsakes/memory-2.webp','/assets/keepsakes/memory-3.webp']}),
+    createCommission({...common,id:'demo-production-jiaxing',title:'嘉兴夜游纪念摆件',serviceMode:'production',raw:'嘉兴南湖夜游的河道、拱桥和两岸建筑很安静，也很浪漫，想把这段夜游记忆做成一个小摆件。',summary:'用户已完成 3D 资产，经营者检查后直接报价、打样和生产。',productionStatus:'checking',demoImage:'/assets/keepsakes/hz.png',submittedFileName:'jiaxing-night-v4.glb'})
+  ].filter(c=>!ids.has(c.id));
 }
 function log(c,action,detail){c.updatedAt=Date.now();c.log=[...c.log,{at:c.updatedAt,action,detail}].slice(-200);return c;}
 export function reviseCommission(c,patch){
-  const next=copy(c),allowed=['title','customer','owner','raw','summary','internalNote','place','date','due','style','photoIds','deliveryType','productType','baseMode','costs','minutes','feedback','deliveryNote','physicalVerified','physicalEvidence','archived'];
+  const next=copy(c),allowed=['title','customer','owner','raw','summary','internalNote','place','date','due','style','photoIds','deliveryType','productType','baseMode','costs','minutes','feedback','deliveryNote','physicalVerified','physicalEvidence','archived','serviceMode','storySynced','productionStatus','sizeCm','material','quantity','productionNote'];
   for(const key of allowed)if(Object.hasOwn(patch,key))next[key]=patch[key];
   const changed=['raw','summary','photoIds','deliveryType','style','place','date','productType','baseMode'].some(key=>JSON.stringify(next[key])!==JSON.stringify(c[key]));
   if(changed){next.briefVersion++;next.review=null;next.confirmedVersion=0;next.status='brief';next.physicalVerified=false;next.physicalEvidence='';next.productRulesVersion=productRulesVersion;}
   return validateCommission(log(next,changed?'修改需求':'更新记录',changed?'新版本需要确认需求并重新审核':'记录已更新'));
 }
+export function confirmReference(c){if(!c.selection)throw Error('请先选择参考方案');const next=copy(c);next.userConfirmedAt=Date.now();next.productionStatus='checking';return validateCommission(log(next,'用户确认参考方案','可以开始立体模型与生产准备'));}
+export function requireModelingReady(c){if(c.serviceMode==='assisted'&&!c.userConfirmedAt)throw Error('参考方案尚未获得用户确认，不能开始建模');}
 export function confirmBrief(c){
   validateProductType(c.productType,{required:true});
   if(!c.photoIds.length&&!c.selection)throw Error('请添加来源照片或选择已有作品');
