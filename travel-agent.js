@@ -321,15 +321,15 @@ async function chatTravelWithProfile(body,options){
   }else if(mode==='ai'&&options.advisorEnabled){
     stage('路线 Agent','working',`正在结合旅行偏好检索${input.destination}的地点与攻略`);
     const dailyLimits={minutes:Math.round(input.dailyHours*60),maxStops:profileValue(profile,'pace')==='easy'?2:profileValue(profile,'pace')==='active'?4:3};
-    const validateDraft=draft=>{
+    const validateDraft=(draft,{allowOptionalOmissions=false}={})=>{
       // Convert only an unambiguous full 0..N-1 sequence. Mixed or incomplete
       // numbering remains an error; no day membership or order is guessed.
       if(Array.isArray(draft?.days)&&draft.days.length===input.dayCount&&draft.days.every((day,index)=>day?.dayIndex===index))draft={...draft,days:draft.days.map(day=>({...day,dayIndex:day.dayIndex+1}))};
       const result=researchedCandidates(draft,input.destination,input,profile,routeResearch),checked=buildDailyPlan({...base,stops:result},profile);
-      if(checked.stops.length!==result.length)throw new Error(`每天包含转场最多${dailyLimits.minutes}分钟、最多${dailyLimits.maxStops}站；当前提案有地点超出容量。请缩短可行停留或去掉可选站，保留全部必去地点。`);
+      if(!allowOptionalOmissions&&checked.stops.length!==result.length)throw new Error(`每天包含转场最多${dailyLimits.minutes}分钟、最多${dailyLimits.maxStops}站；当前提案有地点超出容量。请缩短可行停留或去掉可选站，保留全部必去地点。`);
       return result;
     };
-    const response=await askTravelAdvisor({role:'城市旅行顾问',prompt:'为 input.destination 制定个性化多天旅行。可以选择整个城市真实存在且有实际取得资料的地点，不限现有目录，不固定为地标打卡。先按大众/小众、兴趣、饮食、同行人、住区、出发点、交通与日期检索攻略，再取合适资料组织空间上连贯的每日路线。所有地点必须由实际工具返回的sourceIds支持且名称出现在来源中；search-snippet来源可以支持明确标注“仅搜索摘要、待核实”的候选站，不要求所有站都取得fetched正文；摘要不能据此保证预约/营业。遵守必去与排除；startArea只是出发区域，不自动等于必去或游览站，无出处时只保留在出发需求中，不能插入stops。name只写真实地点名，不添加“商圈起点”“含附近用餐”等叙事后缀。预算不虚构总报价。dayIndex是从1开始的旅行日编号，第一天必须为1、不得为0，不能超过input.dayCount。输出 {title:string,days:[{dayIndex:number,stops:[{name:string,minutes:number,transit:number,story:string,task?:string,sourceIds:string[]}]}]}。1至28个不重复地点，minutes=10至240，transit=0至180是明确估算，每天首站的transit为0，每天停留加转场不能超过dailyLimits.minutes分钟、站数不超过dailyLimits.maxStops；这两个限制均为上限，不是至少站数或必须填满的时长。只要全部必去地点有可用来源，一天安排一个可靠地点也可以，剩余时间留作用餐、休息或自由安排，不要为了凑站数拒绝已有可行方案；餐饮也计入时间，优先在攻略作为就近建议而非额外赶路站。总标题覆盖整趟天数。不输出坐标、模型ID和自编网址。没有可访问的资料时输出 {unavailable:true,reason:string}，不要硬造路线。',data:{...context,input,profile,description:text,dailyLimits,sourceScope:'开放城市选择，目录不限制地点范围'}},{...options,requireResearch:true,researchContext:dialogueResearch,maxTokens:Math.min(6500,1600+(profileValue(profile,'dayCount')||1)*700)});
+    const response=await askTravelAdvisor({role:'城市旅行顾问',prompt:'为 input.destination 制定个性化多天旅行。可以选择整个城市真实存在且有实际取得资料的地点，不限现有目录，不固定为地标打卡。先为 profile.fields.requiredPlaces 中每个必去地点检索可引用资料：首次搜索必须包含目的地和必去地点的准确名称，优先官方场所页面，确认返回的资料确实包含该地点。必须覆盖必去地点后，再用剩余查询了解大众/小众、兴趣、饮食、同行人、住区、出发点、交通与日期，组织空间上连贯的每日路线。若广泛查询只返回了其他地点，继续针对缺失的必去地点搜索或读取其公开页面，不能拿其他景点的来源支撑必去地点，也不能只告诉用户自己提供出处。用户跳过的日期、出发时间、人数、预算、饮食可以留空，按已知条件先出可调整方案；不要因为缺这些可选信息拒绝规划或假装已确认。所有地点必须由实际工具返回的sourceIds支持且名称出现在来源中；search-snippet来源可以支持明确标注“仅搜索摘要、待核实”的候选站，不要求所有站都取得fetched正文；摘要不能据此保证预约/营业。遵守必去与排除；startArea只是出发区域，不自动等于必去或游览站，无出处时只保留在出发需求中，不能插入stops。name只写真实地点名，不添加“商圈起点”“含附近用餐”等叙事后缀。预算不虚构总报价。dayIndex是从1开始的旅行日编号，第一天必须为1、不得为0，不能超过input.dayCount。输出 {title:string,days:[{dayIndex:number,stops:[{name:string,minutes:number,transit:number,story:string,task?:string,sourceIds:string[]}]}]}。1至28个不重复地点，minutes=10至240，transit=0至180是明确估算，每天首站的transit为0，每天停留加转场不能超过dailyLimits.minutes分钟、站数不超过dailyLimits.maxStops；这两个限制均为上限，不是至少站数或必须填满的时长。只要全部必去地点有可用来源，一天安排一个可靠地点也可以，剩余时间留作用餐、休息或自由安排，不要为了凑站数拒绝已有可行方案；餐饮也计入时间，优先在攻略作为就近建议而非额外赶路站。总标题覆盖整趟天数。不输出坐标、模型ID和自编网址。没有可访问的资料时输出 {unavailable:true,reason:string}，不要硬造路线。',data:{...context,input,profile,description:text,dailyLimits,sourceScope:'开放城市选择，目录不限制地点范围'}},{...options,requireResearch:true,researchContext:dialogueResearch,maxTokens:Math.min(6500,1600+(profileValue(profile,'dayCount')||1)*700)});
     routeResearch=response.research;
     if(!routeResearch.sources.some(source=>['fetched','search-snippet'].includes(source.accessStatus)))return {...clarify([],short(response.value.reason,400)||'暂时未能取得可引用的攻略资料，原方案仍保留。你可以稍后重试，或提供公开攻略链接。'),research:routeResearch};
     let routeDraft=response.value;
@@ -343,7 +343,9 @@ async function chatTravelWithProfile(body,options){
         const repaired=await askTravelAdvisor({role:'路线核对顾问',prompt:'仅依据 availableResearch 修正 rejectedDraft，不能联网查询新资料，不能虚构来源、地点或分店。解决 validationError：名称使用来源中实际出现的写法，英文括号别名可以规范化，但不同城市或分店不能混同。每个输出站sourceIds必须非空且来源正文或摘要真实提到该站；无出处的可选地点必须删除，不能保留空sourceIds。startArea只是出发区域，若不是用户明确必去且没有出处，应从stops删除而保留出发需求；用户必去地点若没有出处，必须输出 {unavailable:true,reason:string}，不得悄悄删除。保持 profile 的城市、天数、时长、强度、必去与避开条件。dayIndex必须从1开始，第一天为1，不能为0或超过input.dayCount。name使用来源中实际地点名，不附加游览说明。必须再次检查每天停留加转场不超过dailyLimits.minutes分钟，站数不超dailyLimits.maxStops；二者都是上限而非必须达到的数量和时长，一天一站完全可行，可留下自由活动/用餐/休息时间；search-snippet可支持明确标注待核实的地点候选，不要求每条都已读取正文，不能据摘要保证营业或预约；即使validationError只说名称错误也须修正容量。输出完整 JSON {title:string,days:[{dayIndex:number,stops:[{name:string,minutes:number,transit:number,story:string,task?:string,sourceIds:string[]}]}]}，minutes=10至240，transit=0至180，每天首站的transit为0，总计1至28个地点。若rejectedDraft是unavailable而现有资料已支持必去地点，应依据这些资料生成尽量简单且可行的单站或少站安排；否则不增加原提案以外的新想法。仍缺必去证据时才输出unavailable。',data:{input,profile,dailyLimits,rejectedDraft:routeDraft,validationError:short(error.message,400)}},{...options,allowResearch:false,researchContext:routeResearch,maxTokens:Math.min(6500,1600+(profileValue(profile,'dayCount')||1)*700)});
         routeDraft=repaired.value;
         if(routeDraft.unavailable)throw new Error(short(routeDraft.reason,400)||'必去地点暂时缺少可以对应的资料');
-        candidates=validateDraft(routeDraft);
+        // If the revision still overfills a day, the scheduler may omit optional
+        // stops and explain them. Mandatory stops and source checks still apply.
+        candidates=validateDraft(routeDraft,{allowOptionalOmissions:true});
       }catch(repairError){
         options.signal?.throwIfAborted();
         stage('路线 Agent','error','现有资料未能支持完整路线，已保留原方案');

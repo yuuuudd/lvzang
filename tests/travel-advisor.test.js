@@ -318,6 +318,35 @@ test('an overfull daily proposal is repaired once using explicit capacity while 
   assert.equal(result.status,'ready');assert.equal(result.stops.length,2);assert.ok(result.days[0].totalMinutes<=180);assert.ok(result.stops.some(stop=>stop.name==='正佳广场'));assert.equal(stub.calls.length,5);
 });
 
+test('a still-overfull repair accepts a feasible schedule with mandatory stops and explicit optional omissions',async()=>{
+  const profile=emptyTravelProfile();for(const [field,value]of Object.entries({destination:'广州',dayCount:3,dailyHours:4,startTime:'09:00',pace:'active',requiredPlaces:['广州塔']}))profile.fields[field]={value,status:'confirmed'};
+  const stop=(name,minutes,transit)=>({name,minutes,transit,story:'游览建议，实际开放待确认。',sourceIds:['web-fixture']});
+  const draft={title:'广州三天旅行',days:[{dayIndex:1,stops:[stop('广东省博物馆',90,0),stop('广州塔',180,20)]},{dayIndex:2,stops:[]},{dayIndex:3,stops:[]}]};
+  let searches=0;
+  const stub=provider([{intent:'plan',reply:'按已知条件先出方案。'},toolMessage([toolCall('search_travel_web',{query:'广州 广州塔 广东省博物馆',city:'广州'})]),draft,request=>{
+    const data=JSON.parse(request.messages.at(-1).content);assert.deepEqual(data.dailyLimits,{minutes:240,maxStops:4});assert.match(data.validationError,/容量/);assert.equal(request.tools,undefined);return draft;
+  },matchingGuide]);
+  const result=await chatTravel({description:'广州3天，每天4小时，紧凑游览，必去广州塔，先出方案',profile,mode:'ai',textRevision:true},{...stub,advisorEnabled:true,toolImplementations:{searchTravelWeb:async()=>{searches++;return {...successful,sources:[{...source(),excerpt:'广州塔和广东省博物馆均为广州旅游参观地点。'}]};}}});
+  assert.equal(result.kind,'plan');assert.equal(result.status,'ready');assert.equal(result.days.length,3);assert.deepEqual(result.stops.map(stop=>stop.name),['广州塔']);assert.equal(result.days[0].totalMinutes,180);
+  assert.ok(result.days.every(day=>day.totalMinutes<=240&&day.stops.length<=4));assert.ok(result.warnings.some(warning=>warning.includes('广东省博物馆')&&warning.includes('可选地点')));
+  assert.equal(result.guide.status,'ready');assert.deepEqual(result.guide.days.flatMap(day=>day.stops.map(stop=>stop.name)),['广州塔']);assert.deepEqual(result.profile.fields.requiredPlaces.value,['广州塔']);assert.equal(searches,1);assert.equal(stub.calls.length,5);
+});
+
+test('optional-omission fallback still rejects missing or over-capacity mandatory stops after one repair',async()=>{
+  const stop=(name,minutes,transit=0)=>({name,minutes,transit,story:'游览建议，实际开放待确认。',sourceIds:['web-fixture']});
+  for(const scenario of [
+    {required:['广州塔'],stops:[stop('广东省博物馆',60)],error:/广州塔.*尚未安排/},
+    {required:['广州塔','广东省博物馆'],stops:[stop('广州塔',180),stop('广东省博物馆',90,20)],error:/必去地点.*无法放入|必去地点.*超过/},
+  ]){
+    const profile=emptyTravelProfile();for(const [field,value]of Object.entries({destination:'广州',dayCount:3,dailyHours:4,startTime:'09:00',pace:'active',requiredPlaces:scenario.required}))profile.fields[field]={value,status:'confirmed'};
+    const draft={title:'广州三天旅行',days:[{dayIndex:1,stops:scenario.stops},{dayIndex:2,stops:[]},{dayIndex:3,stops:[]}]};
+    const before=JSON.stringify(profile);let searches=0;
+    const stub=provider([{intent:'plan',reply:'按已知条件先出方案。'},toolMessage([toolCall('search_travel_web',{query:'广州 广州塔 广东省博物馆',city:'广州'})]),draft,request=>{assert.equal(request.tools,undefined);return draft;}]);
+    const result=await chatTravel({description:'按已确认需求先出方案',profile,mode:'ai',textRevision:true},{...stub,advisorEnabled:true,toolImplementations:{searchTravelWeb:async()=>{searches++;return {...successful,sources:[{...source(),excerpt:'广州塔和广东省博物馆均为广州旅游参观地点。'}]};}}});
+    assert.equal(result.kind,'clarify');assert.equal(result.stops,undefined);assert.match(result.assistantReply,scenario.error);assert.deepEqual(result.profile.fields.requiredPlaces.value,scenario.required);assert.equal(JSON.stringify(profile),before);assert.equal(searches,1);assert.equal(stub.calls.length,4);
+  }
+});
+
 test('diet and companion revisions retain accepted places while refreshing advice instead of reusing incompatible food guidance',async()=>{
   for(const [description,profilePatch]of [['我不吃辣，先出方案',{diet:{restrictions:['辣']}}],['我们三个人，先出方案',{companions:{count:3}}]]){
     const profile=emptyTravelProfile();for(const [field,value]of Object.entries({destination:'广州',dayCount:1,dailyHours:3,startTime:'09:00',pace:'normal'}))profile.fields[field]={value,status:'confirmed'};
