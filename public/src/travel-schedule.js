@@ -6,7 +6,7 @@ function stopNames(stop){const known=byId(stop.id);return [...new Set([stop.name
 function matches(stop,name){const known=byId(name);return stopNames(stop).some(candidate=>candidate===nameKey(name)||(known&&candidate===nameKey(known.name)));}
 function timeValue(value,label,max){if(typeof value!=='number'||!Number.isFinite(value)||value<0||value>max)throw new Error(`${label}格式无效`);return Math.round(value);}
 
-export function buildDailyPlan(plan,value){
+export function buildDailyPlan(plan,value,{reflow=false}={}){
   if(!plan||typeof plan!=='object'||Array.isArray(plan))throw new Error('每日方案格式无效');
   const profile=normalizeTravelProfile(value),input=travelProfileInput(profile,plan.input??{}),dayCount=input.dayCount,dailyMinutes=Math.round(input.dailyHours*60),pace=profile.fields.pace.value??(input.easy?'easy':'normal'),maxStops=pace==='easy'?2:pace==='active'?4:3;
   const source=Array.isArray(plan.days)&&plan.days.length?plan.days.flatMap((day,index)=>{if(!day||!Array.isArray(day.stops))throw new Error('每日地点格式无效');return day.stops.map(stop=>({...stop,dayIndex:stop.dayIndex??day.dayIndex??index+1}));}):plan.stops;
@@ -19,7 +19,9 @@ export function buildDailyPlan(plan,value){
     if(stop.minutes<1)throw new Error(`${stop.name}的游览时长需要大于零`);
     const catalogCity=byId(stop.id)?.city;
     if(input.destination&&((stop.city&&nameKey(stop.city)!==nameKey(input.destination))||(catalogCity&&nameKey(catalogCity)!==nameKey(input.destination))))throw new Error(`地点“${stop.name}”不属于${input.destination}，请修订路线`);
-    if(stop.dayIndex!==undefined&&(!Number.isInteger(stop.dayIndex)||stop.dayIndex<1||stop.dayIndex>dayCount))throw new Error('地点的旅行日序号无效');
+    if(stop.dayIndex!==undefined&&(!Number.isInteger(stop.dayIndex)||stop.dayIndex<1||stop.dayIndex>(reflow?7:dayCount)))throw new Error('地点的旅行日序号无效');
+    // A new duration or pace supersedes the old day's assignment, not the place itself.
+    if(reflow)delete stop.dayIndex;
     if(excluded.some(name=>matches(stop,name)))throw new Error(`方案包含你要求避开的“${stop.name}”，请修订路线`);
     const key=stop.id&&!stop.id.startsWith('suggested-')?stop.id:nameKey(stop.name);
     if(seen.has(key))continue;seen.add(key);candidates.push(stop);

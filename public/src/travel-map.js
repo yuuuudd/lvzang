@@ -47,7 +47,7 @@ function query(start){
 }
 
 /** Provider results stay in this view cache; the accepted itinerary is never mutated. */
-export function createTravelMap({onSelectStop = () => {}} = {}) {
+export function createTravelMap() {
   const viewport = document.getElementById('amap-viewport');
   const surface = document.querySelector('.route-map');
   const status = document.getElementById('map-status');
@@ -63,12 +63,12 @@ export function createTravelMap({onSelectStop = () => {}} = {}) {
   const zoomOutButton = document.getElementById('map-zoom-out');
   let map = null, mapReadyPromise = null, sdk = null, generation = 0;
   let currentPlan = null, landmarkStops = [], mode = 'walk', available = false, threeD = true;
-  let acceptedStops = [], excludedPlaces = [], excludedIds = [], showExploration = true, cameraMoved = false;
+  let acceptedStops = [], excludedPlaces = [], excludedIds = [], showExploration = true, cameraMoved = false, isExample = false;
   // Track user input separately from SDK zoom events, which also fire during fit().
   viewport.addEventListener('wheel', () => {cameraMoved = true;}, {capture: true, passive: true});
   viewport.addEventListener('touchstart', event => {if (event.touches.length > 1) cameraMoved = true;}, {capture: true, passive: true});
   viewport.addEventListener('keydown', event => {if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','+','-','='].includes(event.key)) cameraMoved = true;}, true);
-  const viewOptions = (preserveSelection = false) => ({landmarkStops: acceptedStops, excludedPlaces, excludedIds, preserveSelection});
+  const viewOptions = (preserveSelection = false) => ({landmarkStops: acceptedStops, excludedPlaces, excludedIds, preserveSelection, isExample});
   let resolved = new Map(), markers = [], markerById = new Map(), rows = new Map();
   let drawn = new Set(), displayedRoutes = new Set(), selectionLine = null;
   const places = new Map(), placeRequests = new Map(), routes = new Map(), routeRequests = new Map();
@@ -141,7 +141,6 @@ export function createTravelMap({onSelectStop = () => {}} = {}) {
         focused: id === selection.focusId,
       });
     },
-    onSelectStop,
   });
 
   function controls(enabled) {
@@ -247,7 +246,7 @@ export function createTravelMap({onSelectStop = () => {}} = {}) {
     const dayIndex = stop.kind === 'exploration' ? null : stop.dayIndex || currentPlan.dayIndex || null;
     const dayStops = dayIndex ? landmarkStops.filter(item => item.dayIndex === dayIndex) : landmarkStops;
     const dayStopIndex = dayStops.findIndex(item => item.id === stop.id);
-    const content = createLandmarkMarker(stop, {index: index >= 0 ? index : Math.max(0, dayStopIndex), dayIndex, isToday: index >= 0});
+    const content = createLandmarkMarker(stop, {index: index >= 0 ? index : Math.max(0, dayStopIndex), dayIndex, isToday: index >= 0, isExample});
     content.onclick = () => journey.choose(stop.id);
     const marker = new sdk.Marker({position: place.position, title: place.name, content, anchor: 'bottom-center', zIndex: index >= 0 ? 110 : 100});
     map.add(marker); markers.push(marker); markerById.set(stop.id, {marker, content});
@@ -339,6 +338,7 @@ export function createTravelMap({onSelectStop = () => {}} = {}) {
   async function render(plan, options = {}) {
     if (!plan) return;
     currentPlan = plan;
+    isExample = Boolean(options.isExample);
     cameraMoved = false;
     const cityName = value => String(value || '').replace(/市$/, '');
     const merged = [...plan.stops, ...(options.landmarkStops || plan.stops)].filter(stop => cityName(stop.city || plan.city) === cityName(plan.city));
@@ -346,7 +346,7 @@ export function createTravelMap({onSelectStop = () => {}} = {}) {
     excludedPlaces = [...(options.excludedPlaces || [])]; excludedIds = [...(options.excludedIds || [])];
     landmarkStops = [...acceptedStops, ...(showExploration ? getExplorationLandmarks(plan.city, {acceptedStops, excludedPlaces, excludedIds}) : [])];
     const token = ++generation;
-    clear(); journey.reset({landmarkStops, mode, preserve: Boolean(options.preserveSelection)}); resetNavigation(); controls(false);
+    clear(); journey.reset({landmarkStops, mode, preserve: Boolean(options.preserveSelection), isExample}); resetNavigation(); controls(false);
     locationDetails.open = false;
     surface.classList.remove('illustration', 'schematic'); modeSelect.disabled = false;
     setStatus('正在加载高德地图…', 'loading'); showMessage('正在连接高德地图…');

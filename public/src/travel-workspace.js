@@ -34,7 +34,8 @@ export function renderConstraints(input,previous=null,temporary=false,profile=nu
   $('budget-detail').textContent=(budget?.amount!=null?`${scope[budget.scope]||scope.unknown} · ${period[budget.period]||period.unknown} · 消费待核价`:awaitingInfo?'尚未提供预算':'预算上限 · 消费待核价')+(awaitingInfo?' · 尚待排入路线':'');
   $('time-previous').textContent=previous?`原来：${timeText(previous)}`:'可通过对话调整';
   $('budget-previous').textContent=previous?`原来：${budgetText(previous)}`:'可通过对话调整';
-  const labels=awaitingInfo?[{easy:'少走路',normal:'正常节奏',active:'充实紧凑'}[profile?.fields?.pace?.value]||'节奏待补充',...(profile?.fields?.interests?.value||[])]:[...(input.easy?['少走路']:['轻松漫游']),...input.interests,'纪念收藏'];
+  const paceLabel={easy:'轻松少走',normal:'适中',active:'紧凑多走'}[profile?.fields?.pace?.value]||(awaitingInfo?'节奏待补充':input.easy?'轻松少走':'适中');
+  const labels=awaitingInfo?[paceLabel,...(profile?.fields?.interests?.value||[])]:[paceLabel,...input.interests,'纪念收藏'];
   $('preference-tags').innerHTML=[...new Set(labels)].map(t=>`<span>${esc(t)}</span>`).join('');
   const changedTime=previous&&(input.hours!==previous.hours||input.startTime!==previous.startTime),changedBudget=previous&&input.budget!==previous.budget,changedPrefs=previous&&(input.easy!==previous.easy||JSON.stringify(input.interests)!==JSON.stringify(previous.interests)||JSON.stringify(input.requiredIds)!==JSON.stringify(previous.requiredIds)||JSON.stringify(input.excludedIds)!==JSON.stringify(previous.excludedIds));
   for(const [name,changed]of [['time',changedTime],['budget',changedBudget],['preferences',changedPrefs]]){
@@ -66,9 +67,9 @@ function mapPositions(plan){
   const lats=all.map(p=>p.coords[0]),lngs=all.map(p=>p.coords[1]),a=Math.min(...lats),b=Math.max(...lats),c=Math.min(...lngs),d=Math.max(...lngs);
   return Object.fromEntries(all.map(p=>[p.id,[18+(p.coords[1]-c)/Math.max(.008,d-c)*64,78-(p.coords[0]-a)/Math.max(.008,b-a)*56]]));
 }
-function selectMapStop(id){selected=id;document.querySelectorAll('.map-marker,.stop-card').forEach(el=>el.classList.toggle('selected',(el.dataset.stop||el.dataset.stopCard)===selected));const stop=[...document.querySelectorAll('[data-stop-card]')].find(el=>el.dataset.stopCard===id);stop?.focus({preventScroll:true});const container=document.querySelector('.itinerary-content');if(stop)container.scrollTop=stop.offsetTop-50;}
+function selectMapStop(id){selected=id;document.querySelectorAll('#map-markers .map-marker').forEach(el=>el.classList.toggle('selected',el.dataset.stop===selected));}
 export function renderMap(plan,collection,landmarkStops=plan.stops,mapOptions={}){
-  lastMap={plan,collection,landmarkStops,mapOptions};mapController ||= createTravelMap({onSelectStop:selectMapStop});
+  lastMap={plan,collection,landmarkStops,mapOptions};mapController ||= createTravelMap();
   $('map-title').textContent=`${plan.city} · ${illustration?'可选示意图':'立体地标'}`;$('map-view-toggle').textContent=illustration?'返回高德地图':'查看示意图';$('map-view-toggle').disabled=false;
   $('route-line').replaceChildren();$('map-markers').replaceChildren();
   if(!illustration){mapController.render(plan,{landmarkStops,...mapOptions});return;}

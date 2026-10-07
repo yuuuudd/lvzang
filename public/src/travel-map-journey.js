@@ -5,8 +5,12 @@ import {
 } from './travel-map-selection.js';
 
 // This comparison is a view state. It never writes the accepted trip or profile.
-export function createJourneyInspector({requestRoute, drawRoute, clearRoute, highlight, onSelectStop}) {
+export function createJourneyInspector({requestRoute, drawRoute, clearRoute, highlight}) {
   const panel = document.getElementById('map-journey-panel');
+  const scopeNote = document.createElement('p');
+  scopeNote.id = 'map-comparison-note';
+  scopeNote.textContent = '点击建筑仅比较路程，不会加入行程。想加入某处，可在对话中明确提出。';
+  panel.prepend(scopeNote);
   const name = document.getElementById('map-place-name');
   const description = document.getElementById('map-place-description');
   const day = document.getElementById('map-place-day');
@@ -19,7 +23,7 @@ export function createJourneyInspector({requestRoute, drawRoute, clearRoute, hig
   const swap = document.getElementById('map-swap');
   const clear = document.getElementById('map-clear-selection');
   let selection = emptyJourneySelection(), stops = new Map(), places = new Map();
-  let mode = 'walk', active = false, token = 0, pairKey = null;
+  let mode = 'walk', active = false, token = 0, pairKey = null, isExample = false;
   const transport = () => mode === 'drive' ? '驾车' : '步行';
 
   function paint() {
@@ -29,7 +33,7 @@ export function createJourneyInspector({requestRoute, drawRoute, clearRoute, hig
     const place = places.get(selection.focusId);
     name.textContent = focused?.name || '选择建筑，比较两地路程';
     description.textContent = place ? `${place.city} ${place.address}` : '先选起点，再选终点；可比较行程景点和探索地标。';
-    day.textContent = focused?.kind === 'exploration' ? '探索地标 · 未加入行程' : focused?.dayIndex ? `第${focused.dayIndex}天` : focused ? '行程景点' : '';
+    day.textContent = focused?.kind === 'exploration' ? '探索地标 · 未加入行程' : focused ? isExample ? '示例地点 · 未加入行程' : `已在行程${focused.dayIndex ? ` · 第${focused.dayIndex}天` : ''}` : '';
     origin.textContent = stops.get(selection.originId)?.name || '点击建筑选择';
     destination.textContent = stops.get(selection.destinationId)?.name || '再选一处建筑';
     const canFocus = active && Boolean(place);
@@ -89,9 +93,6 @@ export function createJourneyInspector({requestRoute, drawRoute, clearRoute, hig
       clearRoute();
     }
     paint();
-    if (selection.focusId && stops.get(selection.focusId)?.kind !== 'exploration') {
-      onSelectStop(selection.focusId);
-    }
     if (endpointsChanged) calculate();
   }
 
@@ -102,13 +103,14 @@ export function createJourneyInspector({requestRoute, drawRoute, clearRoute, hig
   retry.onclick = () => calculate(true);
 
   return {
-    reset({landmarkStops, mode: nextMode, preserve = false}) {
+    reset({landmarkStops, mode: nextMode, preserve = false, isExample: example = false}) {
       ++token;
       pairKey = null;
       active = false;
       places = new Map();
       stops = new Map(landmarkStops.map(stop => [stop.id, stop]));
       mode = nextMode;
+      isExample = example;
       selection = preserve ? reconcileJourneySelection(selection, [...stops.keys()]) : emptyJourneySelection();
       clearRoute();
       retry.hidden = true;

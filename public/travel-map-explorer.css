@@ -37,6 +37,7 @@
 #map-explorer-controls button:focus-visible,#map-journey-panel button:focus-visible{outline:2px solid var(--green);outline-offset:2px}
 #map-landmark-caption{position:absolute;top:66px;left:12px;z-index:2;max-width:calc(100% - 24px);padding:3px 6px;border-radius:4px;background:#fff;color:var(--muted);font-size:10px;line-height:1.5;pointer-events:none}
 #map-journey-panel{padding:14px 16px 15px;border-top:1px solid var(--line);background:var(--surface)}
+#map-comparison-note{grid-column:1/-1;margin:0 0 10px;max-width:65ch;font-size:11px;line-height:1.7;color:var(--muted)}
 .map-place-focus{display:flex;flex-wrap:wrap;align-items:baseline;gap:3px 10px;margin-bottom:12px}
 .map-place-focus strong{font-size:15px;line-height:1.5;font-weight:700;color:var(--ink)}
 .map-place-focus p{flex-basis:100%;font-size:11px;line-height:1.6;color:var(--muted);overflow-wrap:anywhere}

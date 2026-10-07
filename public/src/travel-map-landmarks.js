@@ -149,13 +149,13 @@ function render(canvas,triangles){
   return true;
 }
 
-export function createLandmarkMarker(stop,{index=0,dayIndex=null,isToday=true}={}){
+export function createLandmarkMarker(stop,{index=0,dayIndex=null,isToday=true,isExample=false}={}){
   stop=stop||{};const name=String(stop.name||'旅行地点').slice(0,120),exploration=stop.kind==='exploration',shortNames={'gz-library':'广州图书馆','gz-ifc':'广州西塔','gz-ctf':'广州东塔','gz-youth-palace':'第二少年宫'},displayName=String(stop.shortName||(exploration&&shortNames[stop.id])||name).slice(0,120),number=Number.isInteger(index)&&index>=0?index+1:1,day=Number.isInteger(dayIndex)&&dayIndex>0?dayIndex:null;
   const button=document.createElement('button');button.type='button';button.className=`map-marker landmark-marker ${exploration?'is-exploration':isToday?'is-today':'is-other-day'}`;button.dataset.stop=String(stop.id||'');
   const model=document.createElement('span');model.className='landmark-model';const canvas=document.createElement('canvas');canvas.className='landmark-canvas';canvas.setAttribute('aria-hidden','true');model.append(canvas);
-  const label=document.createElement('span');label.className='landmark-label';const title=document.createElement('span');title.className='landmark-name';title.textContent=displayName;const context=document.createElement('span');context.className='landmark-day';context.textContent=exploration?'探索 · 未入行程':`${day?`第${day}天 · `:''}第${number}站`;label.append(title,context);
+  const label=document.createElement('span');label.className='landmark-label';const title=document.createElement('span');title.className='landmark-name';title.textContent=displayName;const context=document.createElement('span');context.className='landmark-day';context.textContent=exploration?'探索 · 未入行程':isExample?'示例 · 未加入':'已在行程 · '+(day?`第${day}天`:`第${number}站`);label.append(title,context);
   const endpoint=document.createElement('span');endpoint.className='landmark-endpoint';endpoint.hidden=true;button.append(model,label,endpoint);
-  button.dataset.landmarkLabel=exploration?`${name}，探索地标，未加入行程`:`${name}，${day?`第${day}天，`:''}第${number}站，${isToday?'当天地点':'其他日期地点'}`;
+  button.dataset.landmarkLabel=exploration?`${name}，探索地标，未加入行程`:isExample?`${name}，示例地点，未加入行程`:`${name}，已在行程，${day?`第${day}天，`:''}第${number}站，${isToday?'当天地点':'其他日期地点'}`;
   try{const result=geometry(stop);button.dataset.landmarkKind=result.kind;if(!render(canvas,result.triangles))button.classList.add('has-no-model');}catch{button.classList.add('has-no-model');}
   setLandmarkState(button);return button;
 }

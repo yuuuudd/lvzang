@@ -1,6 +1,6 @@
 import {normalizeRequest,analyzeNotes,planFromCatalog} from './public/src/travel-domain.js';
 import {places} from './public/src/travel-catalog.js';
-import {emptyTravelProfile,normalizeTravelProfile,updateTravelProfile,travelProfileInput,travelFollowUps} from './public/src/travel-profile.js';
+import {emptyTravelProfile,normalizeTravelProfile,updateTravelProfile,applyTravelSettings,travelProfileInput,travelFollowUps} from './public/src/travel-profile.js';
 import {buildDailyPlan} from './public/src/travel-schedule.js';
 
 function parseModelObject(content){
@@ -116,12 +116,12 @@ function manualDestinationForTurn(body,text,previous,patch){
 }
 function dailyBase(input,analysis,mode){return {kind:'plan',status:'ready',mode,city:input.destination,title:`${input.destination} · 我的旅行`,input,analysis,stops:[],totalMinutes:0,transport:input.easy?'建议减少步行，具体交通与无障碍条件待确认':'交通方式与转场时间为估算，出发前确认',assumptions:[],warnings:['开放时间、预约、费用与实际交通尚未核实；预算只作上限，不能保证消费不超额。'],changeSummary:'已按已确认需求整理每日安排。'};}
 function wholeTripTitle(value,input,fallback){
-  const title=short(value,60)||fallback;if(input.dayCount<=1)return title;
+  const title=short(value,60)||fallback;
   const declared=title.match(/([一二两三四五六七1-7])\s*(?:天|日)/),number={一:1,二:2,两:2,三:3,四:4,五:5,六:6,七:7};
-  if(/首日|首天|半日|半天|第[一二两三四五六七\d]+天/.test(title)||declared&&(number[declared[1]]??Number(declared[1]))!==input.dayCount)return `${input.destination}${input.dayCount}天定制行程`;
+  if(input.dayCount>1&&/首日|首天|半日|半天|第[一二两三四五六七\d]+天/.test(title)||declared&&(number[declared[1]]??Number(declared[1]))!==input.dayCount)return `${input.destination}${input.dayCount}天定制行程`;
   return title;
 }
-function routeCanStay(body,profile,changes,text){return Boolean(body.currentPlan?.city===profileValue(profile,'destination')&&Array.isArray(body.currentPlan.stops)&&body.currentPlan.stops.length&&changes.every(f=>['budget','companions','startTime'].includes(f))&&!/重新(?:选|安排|推荐)|换(?:路线|景点)|另一条|换一条|更多地点/.test(text));}
+function routeCanStay(body,profile,changes,text){return Boolean(body.currentPlan?.city===profileValue(profile,'destination')&&Array.isArray(body.currentPlan.stops)&&body.currentPlan.stops.length&&changes.every(f=>['budget','companions','startTime'].includes(f)||Object.hasOwn(body,'tripSettings')&&['dayCount','dailyHours','pace'].includes(f))&&!/重新(?:选|安排|推荐)|换(?:路线|景点)|另一条|换一条|更多地点/.test(text));}
 const catalogDistance=(a,b)=>Math.hypot((a.coords[0]-b.coords[0])*111,(a.coords[1]-b.coords[1])*111*Math.cos(a.coords[0]*Math.PI/180));
 const estimatedTransit=(previous,stop,input)=>previous?Math.max(10,Math.ceil(catalogDistance(previous,stop)/(input.easy?12:8)*60)+8):0;
 function suggestedCandidates(draft,city,input,profile,retain=false){
@@ -151,25 +151,28 @@ async function chatTravelWithProfile(body,options){
   const original=normalizeRequest({...body,description:'',hours:undefined}),emit=e=>options.onProgress?.(e),trace=[];
   const stage=(role,status,detail)=>{emit({type:'stage',role,status,detail});if(status==='complete')trace.push({role,status,detail});};
   stage('对话 Agent','working','正在结合已保存需求理解这句话');
+  const settingsUpdate=Object.hasOwn(body,'tripSettings')?applyTravelSettings(previous,body.tripSettings):null;
   let decision;
-  if(mode==='ai'){
+  if(settingsUpdate)decision={intent:'plan',reply:'已收到你修改的旅行时间与强度。'};
+  else if(mode==='ai'){
     if(!options.key?.trim())throw new Error('尚未配置 DeepSeek；请选择本地示范模式。');
     decision=await ask('旅行对话 Agent',personalDialoguePrompt,{description:text,selectedDestination:body.destination,manualDestination:body.textRevision===false,previous:body.previous,notes:original.notes,...context},options);
   }else decision={intent:localIntent(text),reply:localAnswer(text,original)};
   if(!['answer','plan','clarify'].includes(decision.intent)||typeof decision.reply!=='string'||!decision.reply.trim())throw new Error('对话 Agent 没有返回有效回答，请重试。');
   const allowDefaults=body.allowDefaults===true||/按默认|默认安排|先出.*(?:方案|草案)|先给.*(?:方案|行程|路线|建议)|先安排|你决定|你来定|随便推荐|不用问|直接安排/.test(text);
-  const ordinaryQuestion=informationQuestion(text),patch=ordinaryQuestion?{}:groundedProfilePatch(decision,text,previous);
+  const ordinaryQuestion=!settingsUpdate&&informationQuestion(text),patch=ordinaryQuestion||settingsUpdate?{}:groundedProfilePatch(decision,text,previous);
   // A requested draft authorizes tentative defaults in the same revision as this turn's facts.
   let mergeText=allowDefaults?`${text}\n按默认`:text;
-  const selectedCity=ordinaryQuestion?null:manualDestinationForTurn(body,mergeText,previous,patch);
+  const selectedCity=ordinaryQuestion||settingsUpdate?null:manualDestinationForTurn(body,mergeText,previous,patch);
   if(selectedCity){
     patch.destination={value:selectedCity,status:'confirmed'};
     // A touched dropdown is explicit user input, converted to text for the same safe merger.
     mergeText=`目的地是${selectedCity}。\n${mergeText}`;
   }
-  const updated=ordinaryQuestion?{profile:previous,changed:false,changes:[]}:updateTravelProfile(previous,{text:mergeText,patch,destination:body.textRevision===false?body.destination:undefined,hours:body.textRevision===false?body.hours:undefined});
+  const updated=settingsUpdate??(ordinaryQuestion?{profile:previous,changed:false,changes:[]}:updateTravelProfile(previous,{text:mergeText,patch,destination:body.textRevision===false?body.destination:undefined,hours:body.textRevision===false?body.hours:undefined}));
   let profile=updated.profile;
   stage('对话 Agent','complete',ordinaryQuestion?'识别为问答，保留需求和当前行程':updated.changed?'已整理本轮明确提供的需求':'已沿用保存的需求');
+  if(settingsUpdate&&!settingsUpdate.changed)return {kind:'answer',status:'answered',assistantReply:'这些设置与当前旅行条件一致，行程保持不变。',profile:previous,mode,trace};
   if(ordinaryQuestion||(decision.intent==='answer'&&!updated.changed&&!allowDefaults))return {kind:'answer',status:'answered',assistantReply:short(decision.reply,1800),profile:previous,mode,trace};
   const followUps=travelFollowUps(profile,{allowDefaults});
   const clarify=(questions,reason='')=>{
@@ -183,16 +186,17 @@ async function chatTravelWithProfile(body,options){
   if(!input.destination)return clarify([{field:'destination',question:'你想去哪个城市？'}]);
   if(updated.changed)emit({type:'profile',profile});
   emit({type:'constraints',input});emit({type:'reply',text:'条件已整理，正在校验每日路线；最终安排尚未确认。'});
-  const analysis=analyzeNotes(input.notes),catalog=places.filter(p=>p.city===input.destination),retain=routeCanStay(body,profile,updated.changes,text),base=dailyBase(input,analysis,mode);
+  const analysis=analyzeNotes(input.notes),catalog=places.filter(p=>p.city===input.destination),retain=routeCanStay(body,profile,updated.changes,text),reflow=retain&&updated.changes.some(field=>['dayCount','dailyHours','pace'].includes(field)),base=dailyBase(input,analysis,mode);
   if(!catalog.length)base.assumptions.push('当前地点来自模型已有知识，均为待核实建议；地图仅显示路线顺序，不能解锁目录预制纪念品。');
   let candidates;
   if(retain){
-    candidates=catalog.length?body.currentPlan.stops.map(old=>{
+    const retainedStops=reflow?body.currentPlan.stops.map(({dayIndex,...stop})=>stop):body.currentPlan.stops;
+    candidates=catalog.length?retainedStops.map(old=>{
       const point=catalog.find(p=>p.id===old.id);if(!point)throw new Error('保存路线包含资料范围外的地点，请重新安排');
       return {...point,minutes:old.minutes,transit:old.transit??0,...(old.dayIndex!==undefined?{dayIndex:old.dayIndex}:{}),evidence:analysis.places.find(p=>p.id===old.id)?.evidence||[],reason:'保留之前确认的地点'};
-    }):suggestedCandidates({stops:body.currentPlan.stops},input.destination,input,profile,true);
+    }):suggestedCandidates({stops:retainedStops},input.destination,input,profile,true);
     base.title=wholeTripTitle(body.currentPlan.title,input,base.title);
-    stage('路线 Agent','complete','只更新本轮条件，沿用已保存地点与日期');
+    stage('路线 Agent','complete',reflow?'按新的天数、每日时间与强度重新分配已有地点':'只更新本轮条件，沿用已保存地点与日期');
   }else if(catalog.length){
     const excluded=p=>(profileValue(profile,'excludedPlaces')||[]).some(name=>namedMatch(p,name));
     const required=catalog.filter(p=>(profileValue(profile,'requiredPlaces')||[]).some(name=>namedMatch(p,name)));
@@ -224,8 +228,8 @@ async function chatTravelWithProfile(body,options){
   }else return clarify([{field:'destination',question:'本地目录暂时覆盖广州、苏州和杭州；你想选哪座城市，或切换 AI 规划？'}]);
   stage('总控 Agent','working','正在检查每日时长、全部必去地点与排除要求');
   try{
-    let plan=buildDailyPlan({...base,stops:candidates},profile);
-    if(catalog.length&&!retain){
+    let plan=buildDailyPlan({...base,stops:candidates},profile,{reflow});
+    if(catalog.length&&(!retain||reflow)){
       const timedStops=plan.days.flatMap(day=>day.stops.map((stop,index)=>({...stop,transit:estimatedTransit(day.stops[index-1],stop,input)})));
       plan=buildDailyPlan({...base,stops:timedStops},profile);
     }
@@ -233,7 +237,7 @@ async function chatTravelWithProfile(body,options){
     stage('总控 Agent','complete',`已校验 ${plan.days.length} 天、${plan.stops.length} 站，保留所有必去要求`);
     const defaults=Object.entries(profile.fields).filter(([,field])=>field.status==='tentative').map(([name])=>({dailyHours:'每日可用时间',dayCount:'旅行天数',startTime:'开始时间',pace:'出行节奏'}[name]||'未确认条件'));
     if(defaults.length)plan.assumptions=[...plan.assumptions,`暂按默认${[...new Set(defaults)].join('、')}起草，可继续调整。`];
-    return {...plan,kind:'plan',status:'ready',profile,trace,assistantReply:`已按${input.destination}、${plan.days.length}天、每天${input.hours}小时整理行程。\n${plan.days.map(day=>`第${day.dayIndex}天：${day.stops.map(p=>p.name).join(' → ')||'自由安排，目录暂无更多可核对地点'}。`).join('\n')}${input.budget?`\n预算保留为${input.budget}，费用尚未核实。`:''}\n开放、预约、交通和费用仍需要出发前确认。`,changeSummary:retain?'已更新本轮条件，保留原路线和全部必去地点。':plan.changeSummary};
+    return {...plan,kind:'plan',status:'ready',profile,trace,assistantReply:`已按${input.destination}、${plan.days.length}天、每天${input.hours}小时整理行程。\n${plan.days.map(day=>`第${day.dayIndex}天：${day.stops.map(p=>p.name).join(' → ')||'自由安排，目录暂无更多可核对地点'}。`).join('\n')}${input.budget?`\n预算保留为${input.budget}，费用尚未核实。`:''}\n开放、预约、交通和费用仍需要出发前确认。`,changeSummary:reflow?'已按新时间与强度重排行程，并检查全部必去地点。':retain?'已更新本轮条件，保留原路线和全部必去地点。':plan.changeSummary};
   }catch(error){
     stage('总控 Agent','error',error.message);
     return clarify([{field:'dailyHours',question:'你愿意增加每天可用时间或延长天数，还是减少必去地点？'}],`当前条件无法形成完整安排：${error.message}。原方案仍保留。`);

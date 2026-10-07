@@ -271,6 +271,24 @@ export function updateTravelProfile(previous,{text='',patch={},destination,hours
   return {profile:normalizeTravelProfile(profile),changed:changes.length>0,changes};
 }
 
+// Structured form values are explicit user input, unlike model extraction proposals.
+// Only these three fields are accepted; omitted fields retain both value and status.
+export function applyTravelSettings(previous,settings){
+  if(!object(settings)||!Object.keys(settings).length)throw new Error('请先修改旅行天数、每日时间或游玩强度');
+  const original=normalizeTravelProfile(previous),profile=copy(original),changes=[];
+  for(const [field,value] of Object.entries(settings)){
+    if(!['dayCount','dailyHours','pace'].includes(field))throw new Error('旅行设置包含不支持的字段');
+    if(value===null)throw new Error('旅行设置不能为空');
+    const normalized=normalizeValue(field,value);
+    if(field==='dailyHours'&&!Number.isInteger(normalized*2))throw new Error('每日时间请按半小时调整');
+    const next={value:normalized,status:'confirmed'};
+    if(!same(original.fields[field],next)){profile.fields[field]=next;changes.push(field);}
+  }
+  if(changes.length)profile.revision=original.revision+1;
+  profile.followUps=travelFollowUps(profile);
+  return {profile:normalizeTravelProfile(profile),changed:changes.length>0,changes};
+}
+
 export function travelFollowUps(value,{allowDefaults=false}={}){
   const profile=normalizeTravelProfile(value),fields=profile.fields,result=[];
   if(fields.destination.status==='missing'||(!allowDefaults&&fields.destination.status==='tentative'))result.push({field:'destination',question:'你想去哪个城市？也可以说一个喜欢的文化主题。'});
