@@ -22,7 +22,6 @@ export function renderRequirements(profile,temporary=false){
   const labels={confirmed:'已确认',tentative:'暂定',missing:'待补充'};
   const entries=travelProfileSummary(profile).filter(item=>item.status!=='missing');
   $('requirements-summary').innerHTML=entries.map(({label,value,status})=>`<div class="requirement-row ${status}"><dt>${esc(label)}</dt><dd>${esc(value)}<small>${temporary?'待确认':labels[status]||'待补充'}</small></dd></div>`).join('')||'<div class="requirement-row missing"><dt>旅行条件</dt><dd>待补充</dd></div>';
-  const followUps=(profile?.followUps||[]).slice(0,3);$('follow-up-panel').hidden=!followUps.length;$('follow-up-list').innerHTML=followUps.map(({question})=>`<li>${esc(question)}</li>`).join('');
   $('requirements-panel').classList.toggle('pending',temporary);
 }
 export function renderConstraints(input,previous=null,temporary=false,profile=null,day=null,awaitingInfo=false){
@@ -59,7 +58,20 @@ export function chatMessage(role,text,meta=''){
   const article=document.createElement('article');article.className=`chat-message ${role}`;article.innerHTML=`<span class="chat-avatar">${icon(role==='user'?'user':'sparkle')}</span><div class="chat-bubble"></div>`;
   setMessage(article,text,meta);$('chat-messages').append(article);article.scrollIntoView({block:'nearest'});return article;
 }
-export function setMessage(article,text,meta=''){const bubble=article.querySelector('.chat-bubble');bubble.textContent=text;if(meta){const note=document.createElement('span');note.className='message-meta';note.textContent=meta;bubble.append(note);}}
+export function setMessage(article,text,meta=''){
+  const bubble=article.querySelector('.chat-bubble'),content=document.createElement('div');content.className='message-content';
+  for(const line of String(text??'').split(/\r?\n/).filter(line=>line.trim())){const paragraph=document.createElement('p');paragraph.textContent=line;content.append(paragraph);}
+  bubble.replaceChildren(content);
+  if(meta){const note=document.createElement('span');note.className='message-meta';note.textContent=meta;bubble.append(note);}
+}
+export function revealChatMessage(article){
+  requestAnimationFrame(()=>{
+    if(!article.isConnected)return;
+    if(mobile()){article.scrollIntoView({block:'start',behavior:'instant'});return;}
+    const scroller=article.closest('.chat-scroll');if(!scroller)return;
+    scroller.scrollTop+=article.getBoundingClientRect().top-scroller.getBoundingClientRect().top-12;
+  });
+}
 function mapPositions(plan){
   if(plan.city==='广州'&&plan.stops.every(p=>anchors[p.id]))return Object.fromEntries(plan.stops.map(p=>[p.id,anchors[p.id]]));
   const all=plan.stops;if(!all.length)return {};
