@@ -146,3 +146,5 @@
   .simple-ui .export-row{flex-direction:column}
   .simple-ui .stage-bottom>span{display:none}
 }
+
+.simple-ui .product-fields label,.simple-ui .product-fields select{font-size:14px}.simple-ui #product-rule-note{font-size:12px;color:#52645e;line-height:1.6}

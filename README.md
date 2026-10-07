@@ -1,10 +1,14 @@
+> **完整系统同步（2026-10-07）**：已整合队友分支 `codex/travel-magnet-demo` 的 `2216588`，本机首页为 `http://localhost:4180/`。主导航是“去旅行 / 留回忆”，本地演示可从“选择身份”进入用户或经营者；此演示身份模式无需账号密码。正常账号接口与服务端订单权限仍保留，账号、会话、订单和提交文件位于 `output/accounts/`。历史账号版验证见 [双端登录与订单验证](docs/accounts-orders-verification.md)，当前入口见 [页面与跳转](docs/navigation.md)。
+
+> **经营者工作台（2026-10-06）**：`/operator.html` 已接入委托、需求整理、单件创作往返、审核、客户预览、交付包、费用与反馈。个人合集/作品可发起委托，旅行页也有入口。见 [模块职责与跳转设计](docs/superpowers/specs/2026-10-06-operator-workspace-design.md) 和 [实现与验证](docs/operator-verification.md)。以下原本机委托机制仍用于手动代录；用户提交订单现在以服务端数据为准。
+
 > **队友交接入口（2026-10-05）**：先阅读 [handoff/00-先读我.md](handoff/00-先读我.md)。协作仓库：[yuuuudd/lvzang](https://github.com/yuuuudd/lvzang)。本次目标、两人分工、接口和GitHub协作都在 handoff/；下文保留原照片创作系统说明。
 
 # 拾光 · 可交互的旅行回忆画与立体纪念物
 
-新增 **旅藏文旅体验**：打开 `/travel.html`，从可选攻略与个人需求出发，规划路线、解锁可旋转的 3D 纪念品、分享旅行展柜，并在本机商家工作台管理主题活动与定制报价。真实多 Agent 协作使用现有 DeepSeek 配置；本地示范不调用 AI。完整链路、比赛演示与边界见 [旅藏演示说明](docs/travel-demo.md)。原有创作入口保留。
+**旅藏文旅体验**：打开 `/travel.html` 策划路线；`/collection.html` 整理照片、故事与立体回忆；`/orders.html` 提交定制需求，经营者在 `/operator.html` 接收并进入独立制作、审核与交付流程。旅行对话使用现有 DeepSeek 配置；本地示范不调用 AI。旧版旅行演示与边界见 [旅藏演示说明](docs/travel-demo.md)。原照片创作系统仍可通过 `/index.html` 打开。
 
-**旅行理解更新**：对话保存独立需求档案，支持 1–7 天、同行人、预算口径、必去与排除条件。只修改预算会保留已选地点；普通问题不会重建路线。信息不足时每次最多追问两项，按天切换路线和地图，刷新可继续对话。使用例子、数据范围与后续建议见 [定制路线说明](docs/travel-understanding.md)。
+**旅行理解更新**：需求区可直接修改 1–7 天、每天 1–12 小时（半小时步长）与轻松／适中／紧凑强度；明确点击“应用并调整行程”后重排已有地点。天数不是固定三天，缩短后不会保留越界的旧日期。对话保存独立需求档案，支持同行人、预算口径、必去与排除条件；只修改预算会保留已选地点，普通问题不会重建路线。信息不足时每次最多追问两项，单天隐藏多天切换。增加天数不会凭空补齐地点。旧匿名方案和聊天可迁入本机演示用户，各账号独立保存。使用例子、数据范围与后续建议见 [定制路线说明](docs/travel-understanding.md)。
 
 **真实地图配置**：高德 JS API 2.0 使用独立的 `AMAP_JS_API_KEY` 和 `AMAP_SECURITY_JS_CODE`。景点通过高德城市内 POI 搜索确认位置，步行或驾车路线使用高德路段数据；重名地点需要确认。没有配置时页面显示待配置状态，插画导览为可选示意视图。申请、配置与验收步骤见 [高德地图配置](docs/amap-setup.md)。
 
@@ -42,7 +46,7 @@
 需要 Node.js 24.5+，首次运行先执行 `npm install`。
 
 1. 在本地 `.env` 填写 `DEEPSEEK_API_KEY` 和 `TRIPO_API_KEY`，不要提交密钥。旅行回忆画的策展与成图定位使用 DeepSeek，整体生图和立体制作使用 Tripo；本机抠图不需要额外密钥。示例见 `.env.example`。
-2. 运行 `npm start`，打开 http://localhost:4173 使用专业版，或打开 http://localhost:4173/simple.html 使用简洁版；页顶可直接切换版本。两版共用生成流程与当前浏览器的作品记录，简洁版默认以陶瓷风格自动生成三维。修改密钥后重启服务。
+2. 运行 `npm start`，打开 http://localhost:4173 查看首页；原照片创作专业版位于 `/index.html`，简洁版位于 `/simple.html`。两版共用生成流程与当前浏览器的作品记录，简洁版默认以陶瓷风格自动生成三维。本机常驻服务可用 `./start-local.ps1` 启动在 4180 端口。修改密钥后重启服务。
 3. `npm test` 运行自动检查。
 
 简洁版标题使用 [Noto Serif SC](https://github.com/google/fonts/blob/main/ofl/notoserifsc/METADATA.pb)，正文使用 [Noto Sans SC](https://github.com/google/fonts/blob/main/ofl/notosanssc/METADATA.pb)，两者均为 SIL Open Font License；页面通过 [Google Fonts CSS API](https://developers.google.com/fonts/docs/css2) 加载，离线时回退到系统字体。

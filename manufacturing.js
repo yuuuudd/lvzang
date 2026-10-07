@@ -1,5 +1,6 @@
 import createManifold from 'manifold-3d';
 import { readGlbMeshes } from './mesh-glb.js';
+import {validateProductType,validateBaseMode,productRulesVersion} from './public/src/product-rules.js';
 import { validatePrintSettings } from './public/src/print-settings.js';
 export { validatePrintSettings } from './public/src/print-settings.js';
 
@@ -44,7 +45,10 @@ function cleanFlaps(positions,indices){
   return {indices:Uint32Array.from(faces.filter(f=>!isFlap(f)).flatMap(f=>f.face)),removed:discarded.length};
 }
 
-export async function buildMagnetModel({ glb, settings, scene = {}, mounts = true } = {}) {
+export async function buildMagnetModel({ glb, settings, scene = {}, mounts = true, productType, baseMode='none' } = {}) {
+  validateProductType(productType);validateBaseMode(baseMode);
+  if(productType==='figurine')return buildFigurineModel({glb,settings,baseMode});
+  if(productType==='magnet')mounts=true;
   const config = validatePrintSettings(settings);
   if(typeof mounts!=='boolean'||!mounts&&glb===undefined)throw new Error('无孔模式只支持导入的三维模型');
   if (!scene || typeof scene !== 'object' || Array.isArray(scene)) throw new Error('场景必须为对象');
@@ -249,13 +253,24 @@ export async function buildMagnetModel({ glb, settings, scene = {}, mounts = tru
       const nx=ay*bz-az*by,ny=az*bx-ax*bz,nz=ax*by-ay*bx;
       if(nz<-.7071*Math.hypot(nx,ny,nz))overhangAreaMm2-=nz/2;
     }
+    let backFlatnessMm=null;
+    if(mounts){
+      const depths=[];
+      for(let ix=0;ix<12;ix++)for(let iy=0;iy<12;iy++){
+        const x=bounds.min[0]+(bounds.max[0]-bounds.min[0])*(ix+.5)/12,y=bounds.min[1]+(bounds.max[1]-bounds.min[1])*(iy+.5)/12;
+        if(holes.some(h=>Math.hypot(x-h.center[0],y-h.center[1])<h.diameter/2+.1))continue;
+        const hits=complete.rayCast([x,y,-1],[x,y,bounds.max[2]+1]);
+        if(hits.length)depths.push(Math.min(...hits.map(h=>h.position[2])));
+      }
+      backFlatnessMm=depths.length?Math.max(...depths.map(z=>Math.abs(z))):null;
+    }
     const checks = [
       ...(glb!==undefined?[{name:'color',status:config.colors>1&&!hasSourceColor?'warn':'pass',detail:config.colors>1?(hasSourceColor?`源模型颜色已量化到最多 ${config.colors} 色；3MF 保存表面涂色，STL 仅保存形状。`:'源文件没有颜色信息，无法从白模恢复原始配色；请重新生成带纹理三维。'):'单色白色模型。'},
         ...(mounts?[{name:'mount-overlap',status:'pass',detail:`两孔位于背部中下区域，正面投影由原模型遮住；原模型在孔位与背板重叠最多 ${mountOverlapMm.toFixed(2)} mm。`}]:[]),
         // ponytail: conservative face-angle screen; replace with slicer support analysis before claiming support-free printing.
         {name:'overhang',status:overhangAreaMm2>5?'fail':overhangAreaMm2>.5?'warn':'pass',detail:overhangAreaMm2>5?`检测到约 ${overhangAreaMm2.toFixed(1)} mm² 向下悬空面（含手指等细节）；需合并或加粗后重新建模，再用切片器确认支撑。`:`向下悬空面约 ${overhangAreaMm2.toFixed(1)} mm²；仍需切片确认。`},
         {name:'self-intersection',status:'warn',detail:'封闭性不代表人物、背包和肩带无穿插；未完成全局自相交和语义遮挡检测，请旋转对照参考图。'}]:[]),
-      {name:'flat-back',status:mounts?'pass':'warn',detail:!mounts?'保留原模型背面，未增加背板或磁铁孔；背面平整度需切片确认。':glb!==undefined?'按模型外形投影增加同一平面的背板，再从背面向内切出两个磁铁盲孔。':'拱廊、人物和装饰背侧处于同一平面；磁铁盲孔从背面向内切出。'},
+      {name:'flat-back',status:mounts?(backFlatnessMm!==null&&backFlatnessMm<=.01?'pass':'fail'):'warn',detail:!mounts?'保留原模型背面，未增加背板或磁铁孔；背面平整度需切片确认。':`背面采样偏差 ${backFlatnessMm?.toFixed(4)??'未知'} mm；磁铁孔另外核对。`},
       ...(cleanedTriangles?[{name:'mesh-cleanup',status:'warn',detail:`已清理 ${cleanedTriangles} 个附着的非实体薄片三角形（面积占比不超过 0.5%），随后重新验证封闭性；请对照参考图检查细节。`}]:[]),
       { name: 'topology', status: 'pass', detail: 'Manifold 实体布尔运算成功，闭合定向表面' },
       { name: 'connected', status: 'pass', detail: '最终实体连通分量：1' },
@@ -268,8 +283,56 @@ export async function buildMagnetModel({ glb, settings, scene = {}, mounts = tru
     ];
     const colorData=glb!==undefined?surfaceColors(complete,hasSourceColor?config.colors:1):null;
     return { mesh: modelMesh, ...(glb!==undefined?{colorMode:config.colors===1?'single':hasSourceColor?'surface':'missing',palette:FILAMENT_PALETTE.slice(0,config.colors),faceColors:colorData.faceColors,...(hasSourceColor?{originalColors:colorData.originalColors}:{})}:{}),widthMm: bounds.max[0] - bounds.min[0], heightMm: bounds.max[1] - bounds.min[1], totalDepthMm: bounds.max[2] - bounds.min[2], parts,
-      report: { source: glb !== undefined ? 'glb' : 'parametric', checks, mountOverlapMm,overhangAreaMm2,connectedComponents: components.length, volumeMm3: complete.volume(), triangleCount: complete.numTri(), minFeatureMm, magnetHoles: mounts?holes:[], pocketRayChecks, magnetFloorMm: mounts?Math.min(...pocketRayChecks.map(c => c.remainingFloorMm)):null, magnetWallMm: mounts?1.6:null, watertight: true, inspectedBy: 'manifold-3d', printabilityVerified: false } };
+      report: { source: glb !== undefined ? 'glb' : 'parametric', ...(productType?{productType,productRulesVersion}:{}),backFlatnessMm, checks, mountOverlapMm,overhangAreaMm2,connectedComponents: components.length, volumeMm3: complete.volume(), triangleCount: complete.numTri(), minFeatureMm, magnetHoles: mounts?holes:[], pocketRayChecks, magnetFloorMm: mounts?Math.min(...pocketRayChecks.map(c => c.remainingFloorMm)):null, magnetWallMm: mounts?1.6:null, watertight: true, inspectedBy: 'manifold-3d', printabilityVerified: false } };
   } finally {
     for (let i = owned.length - 1; i >= 0; i--) owned[i].delete();
   }
+}
+
+// Complete Y-up figurine; front/back are never inferred or mirrored.
+async function buildFigurineModel({glb,settings,baseMode}){
+  if(glb===undefined)throw Error('摆件需要完整三维模型，不能使用冰箱贴拱廊模板');
+  const config=validatePrintSettings(settings),{Manifold,Mesh}=await kernel,owned=[];
+  const keep=v=>{owned.push(v);return v;};
+  try{
+    const inputs=await readGlbMeshes(glb),properties=[],indices=[];let count=0,hasColor=false;
+    for(const part of inputs){hasColor ||=part.hasColor;for(let i=0;i<part.positions.length;i+=3)properties.push(...part.positions.subarray(i,i+3),...part.colors.subarray(i,i+3));for(const v of part.indices)indices.push(v+count);count+=part.positions.length/3;}
+    const mesh=new Mesh({numProp:6,vertProperties:Float32Array.from(properties),triVerts:Uint32Array.from(indices)});mesh.merge();
+    let solid;try{solid=keep(new Manifold(mesh));}catch{throw Error('摆件模型不是封闭定向实体，需要重新建模或人工处理');}
+    if(solid.status()!=='NoError'||solid.volume()<=0)throw Error('摆件模型不是有效实体');
+    let bounds=solid.boundingBox(),ext=bounds.max.map((v,i)=>v-bounds.min[i]);
+    if(ext.some(v=>!Number.isFinite(v)||v<=0))throw Error('摆件尺寸无效');
+    const scale=config.widthMm/ext[0];
+    solid=keep(solid.translate([-(bounds.min[0]+bounds.max[0])/2,-bounds.min[1],-(bounds.min[2]+bounds.max[2])/2]));solid=keep(solid.scale(scale));
+    // ponytail: trim at most 0.12 mm to establish contact; irregular poses need an explicit base or manual review.
+    const floor=Math.min(.12,ext[1]*scale*.002);solid=keep(solid.trimByPlane([0,1,0],floor));solid=keep(solid.translate([0,-floor,0]));
+    if(baseMode==='round'){
+      let base=keep(Manifold.cylinder(3,config.widthMm/2,config.widthMm/2,64));base=keep(base.rotate([-90,0,0]));base=keep(base.translate([0,-2.5,0]));
+      base=keep(base.setProperties(3,p=>{for(let c=0;c<3;c++)p[c]=paletteRgb[0][c];}));solid=keep(solid.add(base));
+    }
+    const pieces=solid.decompose();pieces.forEach(keep);
+    if(solid.status()!=='NoError'||pieces.length!==1)throw Error('摆件有断开主体或底座，需确认连接方式');
+    bounds=solid.boundingBox();const out=triangles(solid),contact=[],mass=[0,0,0];let volume6=0;
+    for(let i=0;i<out.length;i+=9){
+      const a=out.subarray(i,i+3),b=out.subarray(i+3,i+6),c=out.subarray(i+6,i+9);
+      const v=a[0]*(b[1]*c[2]-b[2]*c[1])+a[1]*(b[2]*c[0]-b[0]*c[2])+a[2]*(b[0]*c[1]-b[1]*c[0]);volume6+=v;
+      for(let axis=0;axis<3;axis++)mass[axis]+=v*(a[axis]+b[axis]+c[axis])/4;
+      for(const p of [a,b,c])if(Math.abs(p[1]-bounds.min[1])<.001)contact.push([p[0],p[2]]);
+    }
+    const centerOfMass=mass.map(v=>v/volume6),points=[...new Map(contact.map(p=>[p.map(v=>v.toFixed(4)).join(','),p])).values()].sort((a,b)=>a[0]-b[0]||a[1]-b[1]);
+    const cross=(a,b,c)=>(b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]);
+    const half=values=>{const h=[];for(const p of values){while(h.length>1&&cross(h.at(-2),h.at(-1),p)<=0)h.pop();h.push(p);}return h;};
+    const lower=half(points),upper=half(points.toReversed()),hull=[...lower.slice(0,-1),...upper.slice(0,-1)],projection=[centerOfMass[0],centerOfMass[2]];
+    const margin=hull.length>=3?Math.min(...hull.map((a,i)=>{const b=hull[(i+1)%hull.length];return cross(a,b,projection)/Math.hypot(b[0]-a[0],b[1]-a[1]);})):-Infinity;
+    // ponytail: convex support hull and uniform-density centroid; physical balance still requires a trial print.
+    const colors=surfaceColors(solid,hasColor?config.colors:1),checks=[
+      {name:'topology',status:'pass',detail:'封闭定向实体'},
+      {name:'connected',status:'pass',detail:'主体与底座为一个连通实体'},
+      {name:'standing-stability',status:margin>.2?'pass':margin>=0?'warn':'fail',detail:margin===-Infinity?'没有足够接地面，请确认底座或人工调整':`均匀材质重心投影距支撑边界 ${margin.toFixed(2)} mm；实际摆放仍需试打`},
+      {name:'min-feature',status:'warn',detail:'全局薄壁尚待切片检查'},
+      {name:'support',status:'warn',detail:'完整立体造型的悬空与支撑尚待切片检查'},
+      {name:'slicing',status:'warn',detail:'未切片或实打验证；实体制作需另外放行'}
+    ];
+    return {mesh:out,widthMm:bounds.max[0]-bounds.min[0],heightMm:bounds.max[1]-bounds.min[1],totalDepthMm:bounds.max[2]-bounds.min[2],parts:[],palette:FILAMENT_PALETTE.slice(0,config.colors),faceColors:colors.faceColors,...(hasColor?{originalColors:colors.originalColors}:{}),colorMode:config.colors===1?'single':hasColor?'surface':'missing',report:{source:'glb',productType:'figurine',baseMode,productRulesVersion,checks,magnetHoles:[],watertight:true,connectedComponents:1,centerOfMass,stabilityMarginMm:Number.isFinite(margin)?margin:null,volumeMm3:solid.volume(),printabilityVerified:false}};
+  }finally{for(const v of owned.toReversed())v.delete();}
 }

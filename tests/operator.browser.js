@@ -1,0 +1,33 @@
+import assert from 'node:assert/strict';
+import {chromium} from 'playwright';
+import {createApp} from '../server.js';
+import {readFile,mkdir} from 'node:fs/promises';
+import {Document,NodeIO} from '@gltf-transform/core';
+import {unzipSync,strFromU8} from '../public/src/fflate.js';
+const d=new Document(),buf=d.createBuffer(),p=d.createAccessor().setBuffer(buf).setType('VEC3').setArray(new Float32Array([-1,0,0,1,0,0,0,2,0])),mesh=d.createMesh().addPrimitive(d.createPrimitive().setAttribute('POSITION',p));
+d.createScene().addChild(d.createNode().setMesh(mesh));
+const model=await new NodeIO().writeBinary(d),photo=await readFile('public/assets/keepsakes/memory-1.webp');
+let calls=0;const server=createApp({key:'test',fetchImpl:async()=>{calls++;return Response.json({choices:[{message:{content:JSON.stringify({summary:'保留照片中的人物与校门，交付数字纪念作品',missing:['确认作品效果'],next:['人工确认后制作']})}}]});}});
+await new Promise(r=>server.listen(0,'127.0.0.1',r));
+const base='http://127.0.0.1:'+server.address().port,browser=await chromium.launch({channel:'chrome',headless:true});
+await mkdir('artifacts/operator',{recursive:true});
+try{
+ const page=await browser.newPage({viewport:{width:1440,height:960}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto(base+'/operator.html');await page.getByRole('button',{name:'新建委托',exact:true}).waitFor();assert.equal(calls,0);
+ await page.evaluate(async data=>{const {openKeepsakeStore}=await import('/src/travel-keepsake-store.js');const s=await openKeepsakeStore(),blob=new Blob([Uint8Array.from(atob(data.photo),c=>c.charCodeAt(0))],{type:'image/webp'}),glb=new Blob([new Uint8Array(data.model)],{type:'model/gltf-binary'});await s.save({keepsake:{id:'work-fixture',schemaVersion:1,title:'毕业纪念作品',city:'广州',kind:'miniature',scope:'personal',participants:[{id:'me',name:'我'}],modelRef:'generated:operator-fixture-0001:0',generationId:'operator-fixture-0001',assetIndex:0,sourcePhotoId:'photo-fixture',memoryIds:['memory-fixture'],createdAt:1,updatedAt:1},memories:[{id:'memory-fixture',keepsakeId:'work-fixture',authorId:'me',date:'',placeName:'广州',story:'校门前的真实记忆',photoIds:['photo-fixture']}],photos:[{id:'photo-fixture',blob}]});await s.setMeta('generated-asset:operator-fixture-0001:0',{glb,reference:blob,report:{checks:[{name:'topology',status:'fail',detail:'数字可浏览，实体待验证'}]},exportable:false});s.close();},{photo:photo.toString('base64'),model:[...model]});
+ await page.getByRole('button',{name:'新建委托',exact:true}).click();
+ await page.locator('[name=productType]').selectOption('magnet');await page.locator('[name=title]').fill('毕业旅行试用委托');await page.locator('[name=raw]').fill('保留同学和校门');
+ await page.getByRole('button',{name:'保存需求',exact:true}).click();await page.getByText('需求已保存到本机。',{exact:true}).waitFor();
+ await page.getByRole('button',{name:'选择已有作品',exact:true}).click();await page.getByRole('button',{name:'选择这件作品',exact:true}).click();
+ await page.getByRole('button',{name:'AI 整理需求',exact:true}).click();await page.getByText('AI 整理已保存，请核对内容。',{exact:true}).waitFor();
+ await page.getByRole('button',{name:'确认需求，去制作',exact:true}).click();await page.getByRole('button',{name:'提交审核',exact:true}).click();
+ await page.locator('[name=reviewNote]').fill('原图与故事核对，数字文件可交付，实体待试打');await page.getByRole('button',{name:'审核通过，去交付',exact:true}).click();
+ await page.locator('[name=internalNote]').fill('private-secret');await page.getByRole('button',{name:'保存经营记录',exact:true}).click();await page.getByText('经营记录已保存。',{exact:true}).waitFor();
+ await page.getByRole('button',{name:'查看客户预览',exact:true}).click();await page.locator('.preview-page').waitFor();assert.ok(!(await page.locator('body').textContent()).includes('private-secret'));
+ await page.getByRole('button',{name:'返回交付',exact:true}).click();const wait=page.waitForEvent('download');await page.getByRole('button',{name:'导出交付包',exact:true}).click();
+ const files=unzipSync(new Uint8Array(await readFile(await (await wait).path())));assert.ok(files['model.glb']);assert.equal(Object.keys(files).some(n=>n.startsWith('photos/')),false);assert.ok(!strFromU8(files['manifest.json']).includes('private-secret'));
+ await page.getByText('本委托的交付包已导出；尚未自动记录实际交付。',{exact:true}).waitFor();await page.screenshot({path:'artifacts/operator/desktop.png',fullPage:true});assert.match(await page.locator('#operator-root').textContent(),/待交付/);
+ await page.locator('[name=deliveryMethod]').fill('当面交付数字文件');await page.getByRole('button',{name:'记录实际交付',exact:true}).click();await page.getByText('实际交付记录已保存。',{exact:true}).waitFor();
+ await page.reload();await page.getByText('已交付',{exact:true}).first().waitFor();await page.setViewportSize({width:390,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.screenshot({path:'artifacts/operator/mobile.png',fullPage:true});
+ assert.deepEqual(errors,[]);console.log('PASS operator: real store, selected work, AI adapter mock, exact version review, scoped ZIP privacy, manual delivery, reload, desktop/mobile; no paid calls.');
+}finally{await browser.close();await new Promise(r=>server.close(r));}

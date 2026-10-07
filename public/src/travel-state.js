@@ -1,11 +1,31 @@
 import {byId,places} from './travel-catalog.js';
 import {emptyTravelProfile,normalizeTravelProfile} from './travel-profile.js';
-const KEY='lvzang.v1';
-const CHAT_KEY='lvzang.chat.v1';
+import {accountInfo,storageKey} from './account-client.js';
+const LEGACY_KEYS={state:'lvzang.v1',chat:'lvzang.chat.v1'};
+export function travelStorageKeys(){return {state:storageKey(LEGACY_KEYS.state),chat:storageKey(LEGACY_KEYS.chat)};}
+function sourceRecord(storage,name){
+  const raw=storage.getItem(travelStorageKeys()[name]);
+  if(raw!=null||!accountInfo.enabled)return raw;
+  if(!accountInfo.user)return storage.getItem(LEGACY_KEYS[name]);
+  if(accountInfo.user.workspaceOwner)return storage.getItem(LEGACY_KEYS[name]+':guest')??storage.getItem(LEGACY_KEYS[name]);
+  return null;
+}
+function migrateTravelStorage(storage){
+  if(!accountInfo.enabled)return;
+  const keys=travelStorageKeys();
+  try{for(const name of Object.keys(LEGACY_KEYS)){
+    if(storage.getItem(keys[name])!=null)continue;
+    const raw=sourceRecord(storage,name);
+    // Copy the original bytes, including damaged records, so recovery stays possible.
+    if(raw!=null)storage.setItem(keys[name],raw);
+  }}catch{throw new Error('本机资料迁移尚未保存，原始记录已保留，请先下载备份。');}
+}
+export function readRawTravelState(storage){return sourceRecord(storage,'state')??'';}
 const clean=v=>typeof v==='string'?v:'';
 export function initialState(){return {version:1,plan:null,profile:emptyTravelProfile(),collection:[],requests:[],activities:[],notes:[],title:'我的旅行展柜'};}
 export function readState(storage){
-  const raw=storage.getItem(KEY);if(!raw)return initialState();
+  migrateTravelStorage(storage);
+  const raw=storage.getItem(travelStorageKeys().state);if(!raw)return initialState();
   try{
     const value=JSON.parse(raw);if(!value||value.version!==1)throw new Error();
     const result={...initialState(),...value};
@@ -44,13 +64,13 @@ export function readState(storage){
   }
   catch{throw new Error('本机收藏记录无法读取，请先导出或清理损坏数据。');}
 }
-export function writeState(storage,state){try{storage.setItem(KEY,JSON.stringify({...state,version:1}));}catch{throw new Error('本机保存失败，当前内容仍可查看，请导出展览备份。');}}
+export function writeState(storage,state){try{storage.setItem(travelStorageKeys().state,JSON.stringify({...state,version:1}));}catch{throw new Error('本机保存失败，当前内容仍可查看，请导出展览备份。');}}
 function chatMessages(value){
   if(!Array.isArray(value)||value.length>12||value.some(m=>!m||!['user','assistant'].includes(m.role)||typeof m.content!=='string'||m.content.length>2000))throw new Error('本机对话记录无法读取。');
   return value.map(({role,content})=>({role,content}));
 }
-export function readTravelChat(storage){const raw=storage.getItem(CHAT_KEY);if(!raw)return [];try{const value=JSON.parse(raw);if(value?.version!==1)throw new Error();return chatMessages(value.messages);}catch{throw new Error('本机对话记录无法读取；旅行方案仍可恢复。');}}
-export function writeTravelChat(storage,messages){const bounded=chatMessages(messages.slice(-12).map(({role,content})=>({role,content:String(content).slice(0,2000)})));try{storage.setItem(CHAT_KEY,JSON.stringify({version:1,messages:bounded}));}catch{throw new Error('本机对话保存失败，当前对话仍可查看。');}}
+export function readTravelChat(storage){migrateTravelStorage(storage);const raw=storage.getItem(travelStorageKeys().chat);if(!raw)return [];try{const value=JSON.parse(raw);if(value?.version!==1)throw new Error();return chatMessages(value.messages);}catch{throw new Error('本机对话记录无法读取；旅行方案仍可恢复。');}}
+export function writeTravelChat(storage,messages){const bounded=chatMessages(messages.slice(-12).map(({role,content})=>({role,content:String(content).slice(0,2000)})));try{storage.setItem(travelStorageKeys().chat,JSON.stringify({version:1,messages:bounded}));}catch{throw new Error('本机对话保存失败，当前对话仍可查看。');}}
 export function unlock(state,id,title=''){
   if(!byId(id))throw new Error('纪念品不存在');
   let item=state.collection.find(c=>c.id===id);

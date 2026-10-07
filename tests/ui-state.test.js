@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import * as designFns from '../public/src/design.js';
+import {productLabels,productRulesVersion} from '../public/src/product-rules.js';
+import {glbFromPreview} from '../public/src/mesh-glb-export.js';
 import { validatePrintSettings } from '../public/src/print-settings.js';
 
 function harness(fetchImpl=async()=>({json:async()=>({configured:false})})){
@@ -18,7 +20,7 @@ function harness(fetchImpl=async()=>({json:async()=>({configured:false})})){
   for(const [id,value] of Object.entries({place:'','preset':'none','photo-type':'auto',mode:'tripo3d',style:'enamel'}))element(id).value=value;
   let recognizer;
   // Mock browser/device boundaries; run the actual application handlers and design rules.
-  const context=vm.createContext({...designFns,validatePrintSettings,Date,Event,console,AbortController,DOMException,crypto,
+  const context=vm.createContext({...designFns,productLabels,productRulesVersion,glbFromPreview,validatePrintSettings,Date,Event,console,AbortController,DOMException,crypto,
     listHistory:async()=>saved,saveHistory:async record=>{const index=saved.findIndex(item=>item.id===record.id);if(index<0)saved.push(record);else saved[index]=record;},getHistory:async id=>saved.find(r=>r.id===id),
     document:{getElementById:element,querySelectorAll:()=>[],querySelector:()=>element('result'),createElement:()=>element('canvas'),addEventListener(){}},
     window:{addEventListener(){},SpeechRecognition:class{constructor(){recognizer=this;}start(){}stop(){}abort(){}}},
@@ -399,4 +401,13 @@ test('stopping during paid submission preserves the returned task ID for resume'
   finishSubmission(Response.json({taskId:'paid-task'}));await run;
   assert.equal(vm.runInContext('currentJob.id',context),'paid-task');
   assert.equal(element('resume').hidden,false);assert.equal(element('resume').disabled,false);
+});
+
+test('magnet production reads actual mounting dimensions',()=>{
+  const {element,context}=harness();for(const [id,value]of Object.entries({'product-type':'magnet','print-colors':'1','print-width':'60','magnet-diameter':'8','magnet-depth':'3','magnet-clearance':'0.3'}))element(id).value=value;
+  const settings=vm.runInContext('readPrintSettings()',context);assert.equal(settings.magnetDiameter,8);assert.equal(settings.magnetDepth,3);assert.equal(settings.clearance,.3);
+});
+test('a locked order cannot restore history from another product or commission',async()=>{
+  const {element,context,saved}=harness();saved.push({id:'other',operatorId:'other-order',operatorBriefVersion:1,input:{productType:'magnet'},phase:'reference',image:'data:image/png;base64,iVBORw0KGgo=',design:designFns.createDesign({}),settings:validatePrintSettings(),style:'clay'});
+  await new Promise(resolve=>setImmediate(resolve));vm.runInContext("operatorCreationContext={operatorId:'current',operatorBriefVersion:1,productType:'figurine',baseMode:'none'}",context);element('product-type').value='figurine';await vm.runInContext("openHistory('other')",context);assert.equal(element('product-type').value,'figurine');assert.match(element('status').textContent,/当前委托|历史/);
 });

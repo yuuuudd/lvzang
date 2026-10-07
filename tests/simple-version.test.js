@@ -7,7 +7,7 @@ test('professional and simple URLs serve the same working creation controls', as
   await new Promise(resolve=>app.listen(0,'127.0.0.1',resolve));
   try {
     const base=`http://127.0.0.1:${app.address().port}`;
-    const [professional,simple]=await Promise.all([fetch(base),fetch(`${base}/simple.html`)]);
+    const [professional,simple]=await Promise.all([fetch(`${base}/index.html`),fetch(`${base}/simple.html`)]);
     assert.equal(professional.status,200);
     assert.equal(simple.status,200);
     const [proHtml,simpleHtml]=await Promise.all([professional.text(),simple.text()]);
@@ -18,7 +18,7 @@ test('professional and simple URLs serve the same working creation controls', as
       assert.match(simpleHtml,new RegExp(`id="${id}"`));
     }
     assert.match(simpleHtml,/href="\/simple\.html"/);
-    assert.match(simpleHtml,/href="\/"[^>]*>专业版/);
+    assert.match(simpleHtml,/href="\/index\.html"[^>]*>专业版/);
     assert.match(simple.headers.get('content-security-policy'),/fonts\.googleapis\.com/);
     for(const asset of ['/simple.css','/src/simple-ui.js','/assets/simple-trip-preview.png','/assets/simple-object-preview.png']) {
       const response=await fetch(`${base}${asset}`);

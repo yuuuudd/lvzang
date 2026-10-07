@@ -1,8 +1,9 @@
 // Artwork-driven, watertight 2.5D relief. This is an artistic height field, not recovered scene depth.
-export function reliefFromImage(image,{widthMm=60,depthMm=1.6,smoothing=2}={}){
+export function reliefFromImage(image,{widthMm=60,depthMm=1.6,smoothing=2,heightMap}={}){
   const {width:w,height:h,data}=image;
   if(!Number.isInteger(w)||!Number.isInteger(h)||w<3||h<3||w*h>400_000||data?.length!==w*h*4||!Number.isFinite(depthMm)||depthMm<.2||depthMm>4||!Number.isFinite(widthMm)||widthMm<20||widthMm>150)throw new Error('图像或浮雕尺寸无效');
   const n=w*h,mask=new Uint8Array(n),gray=new Float32Array(n);
+  if(heightMap&&(heightMap.length!==n||Array.from(heightMap).some(v=>!Number.isFinite(v)||v<0||v>1)))throw new Error('高度图无效');
   let transparent=false;
   for(let i=0;i<n;i++){const j=i*4;mask[i]=data[j+3]>128?1:0;if(data[j+3]<32)transparent=true;gray[i]=(data[j]*.2126+data[j+1]*.7152+data[j+2]*.0722)/255;}
   const neighbors=(i)=>{const x=i%w,y=Math.floor(i/w);return [x?i-1:-1,x<w-1?i+1:-1,y?i-w:-1,y<h-1?i+w:-1].filter(v=>v>=0);};
@@ -23,7 +24,7 @@ export function reliefFromImage(image,{widthMm=60,depthMm=1.6,smoothing=2}={}){
   for(let y=0;y<h-1;y++)for(let x=0;x<w-1;x++){const a=y*w+x,b=a+1,c=a+w,d=c+1;if(mask[a]&&mask[d]&&!mask[b]&&!mask[c])mask[b]=1;else if(mask[b]&&mask[c]&&!mask[a]&&!mask[d])mask[a]=1;}
   let minX=w,minY=h,maxX=0,maxY=0;
   for(let i=0;i<n;i++)if(mask[i]){minX=Math.min(minX,i%w);maxX=Math.max(maxX,i%w);minY=Math.min(minY,Math.floor(i/w));maxY=Math.max(maxY,Math.floor(i/w));}
-  let values=gray;
+  let values=heightMap||gray;
   const passes=Math.max(1,Math.min(6,Math.round(smoothing)));
   for(let pass=0;pass<passes;pass++){const next=new Float32Array(n);for(let y=0;y<h;y++)for(let x=0;x<w;x++){let sum=0,count=0;for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){const xx=Math.min(w-1,Math.max(0,x+dx)),yy=Math.min(h-1,Math.max(0,y+dy)),i=yy*w+xx;if(mask[i]){sum+=values[i];count++;}}next[y*w+x]=count?sum/count:0;}values=next;}
   const unit=widthMm/(maxX-minX+1),heightMm=(maxY-minY+1)*unit,heights=new Float32Array((w+1)*(h+1));

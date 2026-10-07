@@ -44,11 +44,11 @@ function setVersion(simple,page='trip',navigate=false){
     [tripTitle.textContent,objectTitle.textContent,previewTitle.textContent]=originalTitles;
     [photoLabel.textContent,storyLabel.textContent,story.placeholder]=originalFields;
     if(tripStatus.textContent==='添加至少两张照片，开始创作。')tripStatus.textContent=initialTripStatus;
-    document.querySelector('.brand').href='/';
+    document.querySelector('.brand').href='/index.html';
   }
   if(navigate){
     const hash=page==='object'?'#single-create':'#trip-section';
-    history.pushState(null,'',`${simple?'/simple.html':'/'}${hash}`);
+    history.pushState(null,'',`${simple?'/simple.html':'/index.html'}${hash}`);
     requestAnimationFrame(()=>document.querySelector(hash)?.scrollIntoView({block:'start'}));
   }
 }
