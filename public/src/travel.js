@@ -69,6 +69,33 @@ $('note-image').onchange=async e=>{
 let modeTouched=false;
 function modeNote(){$('mode-note').textContent=$('agent-mode').value==='ai'?'DeepSeek 对话 · Agent 将旅行需求整合到右侧方案。':'本地示范 · 三城路线示例；开放问答请切换 AI。';}
 $('agent-mode').onchange=()=>{modeTouched=true;modeNote();};
+const advisorPrompts={
+  preferences:'我想补全旅行偏好。请继续了解我，每次只问2到3个还没确认的问题，已确认的不重复问；先保留已有路线，不要重新生成行程。',
+  guide:'请沿用当前已确认的路线、日期和地点顺序，补充详细攻略：每站怎么玩、附近吃什么、交通与预约提醒、雨天备选，并给出资料来源。不要更换景点或重新安排路线。'
+};
+function renderAdvisorEntry(){
+  const accepted=Boolean(state.plan&&!resetPrevious);
+  $('advisor-context').textContent=accepted?state.plan.guide?'沿用已保存的方案，你可以继续提问，也可以直接说哪里不满意。':'当前保留的是之前方案。可补充详细攻略，也可以告诉我哪里不满意。':resetPrevious?'正在了解这次新旅行。说说想法，我会逐步记住你的偏好。':'先聊想去哪、想怎么玩。我会记住偏好，也可以随时说哪里不满意。';
+  document.querySelectorAll('[data-advisor-action]').forEach(button=>button.disabled=busy);
+  $('advisor-guide').disabled=busy||!accepted;
+  $('advisor-guide').title=accepted?'沿用已确认的路线，补充玩法、餐饮和提醒':'先聊出一份自己的路线，再补充详细攻略';
+}
+function focusAdvisor(){
+  if(busy)return false;
+  modeTouched=true;$('agent-mode').value='ai';modeNote();
+  $('travel-brief').scrollIntoView({block:'center',behavior:'instant'});$('travel-brief').focus({preventScroll:true});return true;
+}
+function sendAdvisorPrompt(action,description=advisorPrompts[action]){
+  if(busy||!description)return Promise.resolve(false);
+  if(action==='guide'&&(!state.plan||resetPrevious))return Promise.resolve(false);
+  focusAdvisor();
+  // This internal marker keeps the draft intact; the server receives only the explicit natural-language request.
+  return runPlan(true,{advisorAction:action,description});
+}
+$('advisor-continue').onclick=()=>focusAdvisor();
+$('advisor-preferences').onclick=()=>sendAdvisorPrompt('preferences');
+$('advisor-guide').onclick=()=>sendAdvisorPrompt('guide');
+$('advisor-feedback').onclick=()=>{if(busy)return;if(!$('travel-brief').value.trim()){$('travel-brief').value='这份攻略我想改善：';textRevision=true;}focusAdvisor();};
 $('travel-brief').addEventListener('input',()=>textRevision=true);
 $('destination').addEventListener('input',()=>destinationTouched=true);
 $('destination').addEventListener('change',()=>destinationTouched=true);
@@ -80,7 +107,7 @@ function renderTripSettings(profile){
   const tentative=Object.keys(tripSettingIds).some(field=>profile.fields[field].status==='tentative');
   $('trip-settings-note').textContent=tentative?'部分条件仍是暂定值；只会确认你修改后应用的字段。':'填写想修改的条件后应用，也可以继续用对话调整。';
 }
-function renderRequirements(profile,pending=false){renderRequirementSummary(profile,pending);if(!pending)renderTripSettings(profile);}
+function renderRequirements(profile,pending=false){renderRequirementSummary(profile,pending);if(!pending)renderTripSettings(profile);renderAdvisorEntry();}
 for(const [field,id] of Object.entries(tripSettingIds))$(id).addEventListener('input',()=>{tripSettingEdits.add(field);$('trip-settings-note').classList.remove('error');});
 $('trip-settings-form').onsubmit=event=>{
   event.preventDefault();if(busy||!$('trip-settings-form').reportValidity())return;
@@ -109,9 +136,11 @@ function reloadPlanningIdentity(){
 function releasePlanningControls(){
   busy=false;$('trip-settings-fields').disabled=false;document.querySelectorAll('[data-remove-stop]').forEach(button=>button.disabled=false);$('plan-button').disabled=false;$('new-trip').disabled=false;$('cancel-plan').hidden=true;$('plan-form').removeAttribute('aria-busy');
   $('day-selector').querySelectorAll('button').forEach(button=>button.disabled=false);
+  renderAdvisorEntry();
 }
 async function runPlan(usePrevious=true,settingsSubmission=null){
   if(busy)return false;busy=true;
+  renderAdvisorEntry();
   document.querySelectorAll('[data-remove-stop]').forEach(button=>button.disabled=true);
   // Capture this explicit submission, then load the chosen identity before taking any saved context.
   const turnDraft={description:settingsSubmission?.description||$('travel-brief').value||`帮我安排${destinationTouched?$('destination').value:'一条旅行'}路线`,destination:destinationTouched?$('destination').value:'',hours:$('hours').value||undefined,textRevision:!destinationTouched,mode:$('agent-mode').value};
@@ -123,12 +152,12 @@ async function runPlan(usePrevious=true,settingsSubmission=null){
     if(currentIdentityKey()!==loadedIdentityKey){reloadPlanningIdentity();settingsDraft=null;}
   }catch(error){status(error.message||'无法确认当前身份，请稍后重试。',true);releasePlanningControls();return false;}
   $('cancel-plan').hidden=false;
-  const before=displayedPlan(),beforeProfile=state.profile,beforePlan=state.plan,beforeDay=activeDay,beforeReset=state.planningReset,ai=!settingsSubmission&&$('agent-mode').value==='ai';
+  const before=displayedPlan(),beforeProfile=state.profile,beforePlan=state.plan,beforeDay=activeDay,beforeReset=state.planningReset,ai=Boolean(settingsSubmission?.advisorAction)||(!settingsSubmission&&$('agent-mode').value==='ai');
   $('day-selector').querySelectorAll('button').forEach(button=>button.disabled=true);
   const body={description:turnDraft.description,destination:settingsSubmission?'':turnDraft.destination,hours:settingsSubmission?undefined:turnDraft.hours,textRevision:settingsSubmission?true:turnDraft.textRevision,...(settingsSubmission?.tripSettings?{tripSettings:settingsSubmission.tripSettings}:{}),...(settingsSubmission?.itineraryEdit?{itineraryEdit:settingsSubmission.itineraryEdit}:{}),mode:turnDraft.mode,profile:usePrevious?state.profile:emptyTravelProfile(),notes:state.notes,previous:usePrevious&&!resetPrevious&&state.plan?before.input:undefined,currentPlan:usePrevious&&!resetPrevious&&state.plan?before:undefined,history:history.slice()};
   remember('user',body.description);
   chatMessage('user',body.description.trim()||`请推荐${body.destination||'一条旅行'}路线`,new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}));
-  const reply=chatMessage('assistant','已收到，正在理解你的问题…',settingsSubmission?.itineraryEdit?'调整行程地点':settingsSubmission?'调整旅行条件':ai?'DeepSeek 对话':'本地规则示范');reply.classList.add('pending');
+  const reply=chatMessage('assistant','已收到，正在理解你的问题…',settingsSubmission?.advisorAction?'DeepSeek 旅行顾问':settingsSubmission?.itineraryEdit?'调整行程地点':settingsSubmission?'调整旅行条件':ai?'DeepSeek 对话':'本地规则示范');reply.classList.add('pending');
   if(!settingsSubmission){$('travel-brief').value='';textRevision=false;}controller=new AbortController();startPhases(ai);canvasStatus('正在理解你的问题',true);status('正在结合对话理解你的要求。');$('route-state').textContent='保留当前方案';let result=null;
   try{
     const response=await fetch('/api/travel-chat/stream',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.any([controller.signal,AbortSignal.timeout(160000)])});
@@ -144,9 +173,9 @@ async function runPlan(usePrevious=true,settingsSubmission=null){
       const readableReply=advisorReplyText(result.assistantReply,result.research);setMessage(reply,readableReply,result.kind==='clarify'?'补充旅行条件':result.mode==='ai'?'DeepSeek':'本地说明');appendResearchSources(reply.querySelector('.chat-bubble'),result.research);remember('assistant',readableReply);reply.classList.remove('pending');finishPhases(result);renderRequirements(state.profile);renderConstraints(before.input,null,false,state.profile,before.days?.[activeDay],result.kind==='clarify'||Boolean(state.profile.followUps.length));const saved=changed?persist():true,chatSaved=persistChat();canvasStatus(result.kind==='clarify'?'需求已记录 · 等你补充条件':'已回答 · 当前行程保持不变',false,!saved||!chatSaved);status(!saved||!chatSaved?'当前对话或需求尚未保存，请保留此页面。':result.kind==='clarify'?'请补充上方问题，当前行程已保留。':'已回答你的问题。需要修改行程时，直接告诉我。');return result.kind==='answer';
     }
     if(result.status!=='ready')throw new Error(result.assumptions.join(' '));
-    const acceptedProfile=result.profile?normalizeTravelProfile(result.profile):beforeProfile;
-    state.plan=result;state.profile=acceptedProfile;state.planningReset=false;activeDay=settingsSubmission?.itineraryEdit?Math.max(0,(settingsSubmission.itineraryEdit.dayIndex??beforeDay+1)-1):Number.isInteger(result.editedDayIndex)?Math.max(0,result.editedDayIndex-1):0;resetPrevious=false;destinationTouched=false;$('destination').value=result.city;$('hours').value='';setMessage(reply,result.assistantReply||result.changeSummary,settingsSubmission?.itineraryEdit?'行程地点已更新':settingsSubmission?'旅行条件已更新':result.mode==='ai'?'AI 协作已完成':'本地示范已完成');remember('assistant',result.assistantReply||result.changeSummary);renderRoute();renderConstraints(result.input,before.input,false,state.profile,result.days?.[activeDay]);renderRequirements(state.profile);finishPhases(result);const saved=persist(),chatSaved=persistChat();reply.classList.remove('pending');$('workspace-title').textContent=result.city+'城市漫游';$('chat-session-label').textContent='可以继续提问，也可以修改方案';canvasStatus(saved&&chatSaved?'方案已更新，继续说说你的想法':'方案已更新 · 尚未保存',false,!saved||!chatSaved);status(saved&&chatSaved?'方案已更新。':'方案或对话暂留在页面，尚未保存。');return true;
-  }catch(error){state.plan=beforePlan;state.profile=beforeProfile;state.planningReset=beforeReset;activeDay=beforeDay;history=body.history.slice();const message=error.name==='AbortError'?'已停止本次修订，前一方案已保留。':error.message||'网络异常，前一方案已保留。';renderRoute();renderConstraints(before.input,null,false,beforeProfile,before.days?.[activeDay],Boolean(beforeProfile.followUps.length));renderRequirements(beforeProfile);failPhases(message);setMessage(reply,message,'这次修订未保存');reply.classList.remove('pending');reply.classList.add('error');canvasStatus(message,false,true);status(message,true);return false;}finally{busy=false;controller=null;$('trip-settings-fields').disabled=false;document.querySelectorAll('[data-remove-stop]').forEach(button=>button.disabled=false);if(settingsDraft){$('travel-brief').value=settingsDraft.text;destinationTouched=settingsDraft.destinationTouched;if(destinationTouched)$('destination').value=settingsDraft.destination;}button.disabled=false;$('new-trip').disabled=false;$('cancel-plan').hidden=true;$('plan-form').removeAttribute('aria-busy');$('route-section').classList.remove('pending');$('day-selector').querySelectorAll('button').forEach(dayButton=>dayButton.disabled=false);$('route-state').textContent=state.profile.followUps.length?'待补充条件':state.plan?'已确认':'示例';}
+    const acceptedProfile=result.profile?normalizeTravelProfile(result.profile):beforeProfile,guideFailed=result.guideUpdateStatus==='failed';
+    state.plan=result;state.profile=acceptedProfile;state.planningReset=false;activeDay=settingsSubmission?.itineraryEdit?Math.max(0,(settingsSubmission.itineraryEdit.dayIndex??beforeDay+1)-1):Number.isInteger(result.editedDayIndex)?Math.max(0,result.editedDayIndex-1):result.guideUpdateStatus?beforeDay:0;resetPrevious=false;destinationTouched=false;$('destination').value=result.city;$('hours').value='';setMessage(reply,result.assistantReply||result.changeSummary,guideFailed?'攻略更新未完成':result.guideUpdateStatus==='updated'?'详细攻略已补充':settingsSubmission?.advisorAction?'顾问已回复':settingsSubmission?.itineraryEdit?'行程地点已更新':settingsSubmission?'旅行条件已更新':result.mode==='ai'?'AI 协作已完成':'本地示范已完成');remember('assistant',result.assistantReply||result.changeSummary);renderRoute();renderConstraints(result.input,before.input,false,state.profile,result.days?.[activeDay]);renderRequirements(state.profile);finishPhases(result);const saved=persist(),chatSaved=persistChat();reply.classList.remove('pending');$('workspace-title').textContent=result.city+'城市漫游';$('chat-session-label').textContent='可以继续提问，也可以修改方案';canvasStatus(guideFailed?'攻略更新未完成 · 原方案已保留':saved&&chatSaved?'方案已更新，继续说说你的想法':'方案已更新 · 尚未保存',false,guideFailed||!saved||!chatSaved);status(!saved||!chatSaved?'方案或对话暂留在页面，尚未保存。':guideFailed?'攻略更新未完成，原方案已保留，可继续反馈或稍后重试。':'方案已更新。',guideFailed);return !guideFailed;
+  }catch(error){state.plan=beforePlan;state.profile=beforeProfile;state.planningReset=beforeReset;activeDay=beforeDay;history=body.history.slice();const message=error.name==='AbortError'?'已停止本次修订，前一方案已保留。':error.message||'网络异常，前一方案已保留。';renderRoute();renderConstraints(before.input,null,false,beforeProfile,before.days?.[activeDay],Boolean(beforeProfile.followUps.length));renderRequirements(beforeProfile);failPhases(message);setMessage(reply,message,'这次修订未保存');reply.classList.remove('pending');reply.classList.add('error');canvasStatus(message,false,true);status(message,true);return false;}finally{busy=false;controller=null;$('trip-settings-fields').disabled=false;document.querySelectorAll('[data-remove-stop]').forEach(button=>button.disabled=false);if(settingsDraft){if(!settingsSubmission?.advisorAction)$('travel-brief').value=settingsDraft.text;destinationTouched=settingsDraft.destinationTouched;if(destinationTouched)$('destination').value=settingsDraft.destination;}button.disabled=false;$('new-trip').disabled=false;$('cancel-plan').hidden=true;$('plan-form').removeAttribute('aria-busy');$('route-section').classList.remove('pending');$('day-selector').querySelectorAll('button').forEach(dayButton=>dayButton.disabled=false);$('route-state').textContent=state.profile.followUps.length?'待补充条件':state.plan?'已确认':'示例';renderAdvisorEntry();}
 }
 $('plan-form').onsubmit=e=>{e.preventDefault();runPlan();};
 $('travel-brief').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();runPlan();}};
@@ -173,7 +202,7 @@ function renderRoute(){
   $('route-souvenirs').querySelectorAll('[data-preview-stop]').forEach(button=>button.onclick=()=>{if(state.collection.some(c=>c.id===button.dataset.previewStop))showSouvenir(button.dataset.previewStop);else{document.querySelector(`[data-stop-card="${button.dataset.previewStop}"]`)?.focus({preventScroll:true});notice('在对应行程站点模拟签到后，可解锁纪念品并加入展柜。');}});
   const analysis=plan.analysis;
   $('analysis-content').innerHTML=`<p class="fine">${esc(analysis.summary)}</p>`+analysis.findings.map(f=>`<article class="source-entry"><strong>${esc(f.title)}</strong><p>${esc(f.text)}</p><small>原帖片段 · 未独立核实</small></article>`).join('')+analysis.places.map(p=>`<article class="source-entry"><strong>${esc(p.name)}</strong><p>${p.evidence.map(e=>esc(e.title)+(e.url?` · <a href="${esc(e.url)}" target="_blank" rel="noopener">查看出处</a>`:'')).join('<br>')}</p></article>`).join('')+`<p class="fine">${plan.stops.some(p=>p.source)?'地方参考：':(fullPlan.guide?.sources?.length||fullPlan.research?.sources?.length)?'本轮公开资料见下方来源':'暂无本轮可引用的公开资料'}${plan.stops.filter(p=>p.source).map(p=>`<a href="${esc(p.source)}" target="_blank" rel="noopener">${esc(p.name)}</a>`).join(' · ')}。参考入口不代表已核实当日营业、预约与票价。</p>`;
-  renderTravelGuide(fullPlan,activeDay+1,question=>{if(busy)return;$('travel-brief').value=question;$('travel-brief').scrollIntoView({block:'center'});runPlan();});
+  renderTravelGuide(fullPlan,activeDay+1,question=>sendAdvisorPrompt('question',question),{isExample:!state.plan||resetPrevious,onEnrich:()=>sendAdvisorPrompt('guide')});
 }
 
 function clearPreviews(){previews.forEach(p=>p.destroy());previews=[];}

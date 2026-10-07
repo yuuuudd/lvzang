@@ -1,7 +1,22 @@
 .chat-scroll{min-height:0;overscroll-behavior:contain}.chat-heading,.composer{flex:none}
-@media(min-width:768px){.workspace{min-height:0}.requirements-panel{max-height:min(28dvh,280px)}.chat-scroll{flex:1 1 0}}
+.chat-heading{padding-bottom:12px}
+.advisor-entry{flex:none;margin:0 24px 8px;padding:10px 12px;border:1px solid #d7e5be;border-radius:12px;background:#f4f9ec}
+.advisor-continue{display:flex;align-items:center;justify-content:space-between;width:100%;min-height:32px;padding:0;background:none;border:0;text-align:left;font-size:15px;font-weight:650;color:var(--ink)}
+.advisor-continue span{color:var(--green)}
+.advisor-entry p{margin:3px 0 9px;font-size:11px;line-height:1.65;color:var(--muted)}
+.advisor-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.advisor-actions button{min-width:0;min-height:40px;padding:7px 3px;border:1px solid #d7e5be;border-radius:7px;background:#fff;font-size:11px;line-height:1.4;color:var(--ink)}
+.advisor-actions button:hover:not(:disabled){background:#e8f2d8;border-color:#a3c661}
+.advisor-entry button:disabled{opacity:.5;cursor:default}
+.requirements-panel{padding:0 0 7px}
+.requirements-disclosure>summary{padding:8px 0;font-size:11px;color:var(--muted);cursor:pointer}
+.requirements-disclosure[open]>summary{color:var(--ink)}
+.requirements-disclosure .trip-settings-form{margin-top:2px}
+.guide-enrich-note{padding:11px 13px;border:1px solid #d7e5be;border-radius:9px;background:#f4f9ec}
+.guide-enrich-note p{margin:0 0 8px}.guide-enrich-note button{font-size:12px;min-height:36px;color:var(--green);text-align:left}
+@media(min-width:768px){.workspace{min-height:0}.chat-heading{padding-top:16px;padding-bottom:8px}.requirements-panel{max-height:min(17dvh,120px)}.chat-scroll{flex:1 1 0}}
 .travel-guide-overview{margin:8px 0 14px;font-size:12px;line-height:1.8;color:var(--muted)}.travel-guide-overview:empty{display:none}
 .stop-guide{margin:12px 0;font-size:12px;line-height:1.85;overflow-wrap:anywhere}.stop-guide h4{font-size:12px;margin:12px 0 3px;color:var(--ink)}.stop-guide p{margin:4px 0}.stop-guide ul{margin:5px 0;padding-left:17px}.ask-stop-guide{display:block;font-size:11px;margin-top:10px;text-align:left;color:var(--green)}
 .research-sources{white-space:normal;margin-top:10px;font-size:11px;line-height:1.65}.research-sources summary{cursor:pointer;color:var(--green)}.research-sources p{margin-top:7px}.research-sources a{text-decoration:underline;text-underline-offset:3px;overflow-wrap:anywhere}.research-sources small{display:inline;color:var(--muted)}
 .return-to-chat{position:fixed;right:14px;bottom:14px;z-index:35;min-height:44px;max-width:220px;border:1px solid #d2dcbe;border-radius:24px;padding:10px 16px;background:var(--accent);color:var(--ink);box-shadow:0 4px 16px #21302b22;font-size:13px}.return-to-chat[hidden]{display:none}
-@media(max-width:767px){.chat-scroll{max-height:460px;min-height:200px}.composer{position:relative}.requirements-panel{max-height:310px}.ask-stop-guide{min-height:44px}}
+@media(max-width:767px){.chat-heading{order:0}.advisor-entry{order:1;margin:0 18px 10px}.advisor-continue{min-height:40px}.advisor-actions button{min-height:44px}.composer{order:2;position:relative}.requirements-panel{order:3;max-height:none;overflow:visible;padding-top:8px}.chat-scroll{order:4;max-height:460px;min-height:200px}.requirements-disclosure>summary{min-height:40px;display:list-item;padding:11px 0}.ask-stop-guide{min-height:44px}}

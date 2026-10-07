@@ -20,10 +20,16 @@ export function appendResearchSources(target,research){
   details.append(el('p','营业、预约、菜单和价格可能变化，出发前请向场所确认。','fine'));target.append(details);
 }
 
-export function renderTravelGuide(plan,dayIndex,onAsk){
+export function renderTravelGuide(plan,dayIndex,onAsk,{isExample=false,onEnrich}={}){
   document.getElementById('travel-guide-overview')?.remove();
   const guide=plan.guide,day=guide?.days?.find(item=>item.dayIndex===dayIndex);
   const overview=el('section',null,'travel-guide-overview');overview.id='travel-guide-overview';
+  if(!guide&&!isExample){
+    const note=el('div',null,'guide-enrich-note');
+    note.append(el('p','当前保留的是之前方案，可以沿用这条路线补充玩法、附近餐饮、交通和预约提醒。'));
+    if(onEnrich){const enrich=el('button','补充这份路线的详细攻略 →','text-button');enrich.type='button';enrich.onclick=onEnrich;note.append(enrich);}
+    overview.append(note);
+  }
   if(day?.overview)overview.append(el('p',text(day.overview)));
   else if(guide?.summary)overview.append(el('p',text(guide.summary)));
   if(guide?.status==='unavailable')overview.append(el('p','详细攻略暂未生成，当前路线已保留。你可以继续问具体地点怎么玩或附近吃什么。','fine'));

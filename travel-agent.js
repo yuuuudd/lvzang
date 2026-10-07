@@ -75,7 +75,7 @@ function localAnswer(description,input){
   return '当前是本地示范模式，没有调用大模型。可以安排广州、苏州和杭州的示范路线；要按你的问题进行开放问答或规划其他城市，请在「策划选项」切换为 AI Agent 协作。';
 }
 const personalDialoguePrompt='先判断本轮真正的意图：普通地点介绍、费用解释、产品使用等问题 intent=answer，直接回答，不修改需求或行程；明确安排路线或修改条件时 intent=plan；用户补充需求但仍缺关键条件时可 intent=clarify。profile 是已保存的需求，profile.followUps 是上轮追问，短回答要按追问字段理解。只有本轮用户明确表达才输出 profilePatch，不从攻略、示例、助手回复或建议中确认事实。遗漏字段表示沿用；null 表示明确清除。输出 {intent:"answer"|"plan"|"clarify",reply:string,destination?:string,profilePatch?:{destination?:string,dayCount?:number,dailyHours?:number,startTime?:string,companions?:{count?:number,description?:string,adults?:number,children?:number,seniors?:number},budget?:{amount?:number,currency?:"CNY",scope?:"per-person"|"group"|"unknown",period?:"trip"|"day"|"unknown",includes?:string[]},interests?:string[],pace?:"easy"|"normal"|"active",requiredPlaces?:string[],excludedPlaces?:string[]},followUp?:{field:string,question:string}}。dayCount 为1至7天，dailyHours 为1至12小时的每日游览时间，不将三天换成24小时或把地点参观时长当作每日时间。预算范围不清楚保持 unknown，不擅自猜人均、整团、每日或全程；同行人数未说清时留空。必去/排除地点只记录用户明确要求，取消或保留按最新要求处理。本轮自然语言明确指定目的地时以正文为准；manualDestination=true 且正文未指定城市时，selectedDestination 是用户明确选择，区分出发地与目的地。最多追问两个问题，优先目的地、天数和已提供预算的范围；用户要求先按假设起草时明确默认条件。支持任何城市，但营业、预约、费用、交通和无障碍未实时核实。预制纪念品仅覆盖三城；签到模拟；照片可另行定制；定制需求只在本机保存，没有付款或自动生产。';
-const advisorDialoguePrompt=`${personalDialoguePrompt}\n你要像旅行顾问一样逐轮了解用户：大众必打卡、小众探索还是混合，喜欢的玩法和吃什么，饮食忌口、同行人、住哪里/从哪里出发、交通方式及出游日期。每轮最多2至3个相关问题，已确认的信息不重复问。尚未具备需求时只做采访，不立即给固定地标路线；用户要求先出方案则按明确标注的暂定条件起草。profilePatch 还支持 crowdPreference:"popular"|"niche"|"mixed",diet:{preferences:string[],restrictions:string[]},stayArea:string,startArea:string,transport:"walk"|"transit"|"drive"|"taxi"|"bike"|"mixed",travelDates:{start:string|null,end:string|null}，日期为YYYY-MM-DD。不把自己推荐的餐饮和景点记录成用户偏好。回答吃什么、怎么玩或攻略细节时可使用实际联网工具，最终包含sourceIds:string[]；来源不可访问要直说。采访和基本条件提取不需要无意义搜索。startTime只允许24小时HH:mm，例如14:00；只有下午、上午等模糊时段时不要填startTime，需要时追问具体时间。intent为plan或clarify时reply最多120字，仅确认本轮需求，不输出逐站路线或时间表，后续独立步骤会依据来源整理。`;
+const advisorDialoguePrompt=`${personalDialoguePrompt}\n你要像旅行顾问一样逐轮了解用户：大众必打卡、小众探索还是混合，喜欢的玩法和吃什么，饮食忌口、同行人、住哪里/从哪里出发、交通方式及出游日期。每轮最多2至3个相关问题，已确认的信息不重复问。尚未具备需求时只做采访，不立即给固定地标路线；用户要求先出方案则按明确标注的暂定条件起草。profilePatch 还支持 crowdPreference:"popular"|"niche"|"mixed",diet:{preferences:string[],restrictions:string[]},stayArea:string,startArea:string,transport:"walk"|"transit"|"drive"|"taxi"|"bike"|"mixed",travelDates:{start:string|null,end:string|null}，日期为YYYY-MM-DD。不把自己推荐的餐饮和景点记录成用户偏好。回答吃什么、怎么玩或攻略细节时可使用实际联网工具，最终包含sourceIds:string[]；来源不可访问要直说。采访和基本条件提取不需要无意义搜索。startTime只允许24小时HH:mm，例如14:00；只有下午、上午等模糊时段时不要填startTime，需要时追问具体时间。intent为plan或clarify时reply最多120字，仅确认本轮需求，不输出逐站路线或时间表，后续独立步骤会依据来源整理。已有currentPlan代表已接受路线，回答后续问题应持续利用currentGuide和保存来源。普通咨询intent=answer，只答不改；明确补充玩法、餐饮、预约或雨天攻略时intent=plan，只改善指定内容，沿用日期、地点和顺序。用户仅说不满意、不喜欢或改善一下而没有具体修改条件时intent=clarify，并返回一个合法followUp:{field,question}，自然地问想改哪部分，不猜测或确认新偏好。followUp.field只能是profile.fields已有字段。用户明确继续补全偏好时只问尚缺字段，保留既有路线，不回到初次固定地标规划。`;
 const profileValue=(profile,field)=>profile.fields[field]?.value;
 const namedKey=value=>String(value??'').trim().replace(/\s/g,'');
 function namedMatch(stop,name){
@@ -201,6 +201,29 @@ function savedPlanResearch(plan,fallback){
   const from=record=>Array.isArray(record?.sources)?record.sources.slice(0,18):[];
   return {sources:[...from(fallback),...from(plan?.research),...from(plan?.guide)],errors:Array.isArray(plan?.research?.errors)?plan.research.errors.slice(0,10):[]};
 }
+function requestsNewRoute(text){
+  return text.split(/[，。；;,\n]/).some(clause=>/重新(?:选|安排|推荐|规划)|(?:更换|换)(?:路线|景点)|另一条|换一条|更多地点/.test(clause)&&!/(?:不要|不必|无需|不用|不想|不更换|沿用|保留|不变)/.test(clause));
+}
+function requestedGuideRevision(text){
+  if(requestsNewRoute(text)||/(?:不要|不用|不必)(?:再)?(?:补充|丰富|完善|细化|更新|重写)/.test(text))return null;
+  const detail=/丰富|补充|完善|细化|更新|重写|改写|展开|写(?:得|的)?(?:更)?(?:详细|具体)|(?:详细|具体)(?:一)?点/.test(text);
+  const focus=[['play',/玩法|怎么玩|游玩细节/],['food',/餐饮|吃什么|餐厅|点餐|美食/],['reservation',/预约|购票/],['rain',/雨天|下雨|备选/],['transport',/交通|怎么走|出行提醒/]].filter(([,pattern])=>pattern.test(text)).map(([field])=>field);
+  if(!detail&&!(focus.length&&/改善|改进|优化/.test(text))||!focus.length&&!/攻略/.test(text))return null;
+  const date=text.match(/第\s*([\d一二两三四五六七八九十]+)\s*天/),numbers={一:1,二:2,两:2,三:3,四:4,五:5,六:6,七:7,八:8,九:9,十:10};
+  return {focus:focus.length?focus:['all'],...(date?{dayIndex:numbers[date[1]]??Number(date[1])}:{})};
+}
+const feedbackSignal=text=>/不(?:太|是很)?满意|不喜欢|不合适|没意思|改善|改进|优化/.test(text);
+function purelyVagueFeedback(text){
+  return feedbackSignal(text)&&!text.replace(/(?:这(?:个|份)?|当前的|现在的)?(?:攻略|方案|安排|路线|景点)|不(?:太|是很)?满意|不喜欢|不合适|没意思|改善|改进|优化|调整|修改|改改|继续|一下|一些|一点|一版|觉得|感觉|帮我|给我|能不能|可以|还是|这些|这个|再|请|我|你|吗|[\s，。；：！？,.!?;:]/g,'');
+}
+function feedbackFollowUp(decision,profile){
+  const item=decision.followUp;
+  if(item&&typeof item==='object'&&!Array.isArray(item)&&Object.hasOwn(profile.fields,item.field)&&typeof item.question==='string'&&item.question.trim()&&item.question.length<=240)return {field:item.field,question:item.question.trim()};
+  return {field:'interests',question:'你最想改哪部分：游玩节奏、景点选择、餐饮，还是每站怎么玩？也可以直接说一个不满意的地方。'};
+}
+function guideCommandFacts(text){
+  return questionFacts(text).split(/[，。；;,\n]/).map(clause=>clause.replace(/(?:请|帮我)?(?:丰富|补充|完善|细化|更新|重写|改写|展开|写具体|写详细)[\s\S]*$/,'').trim()).filter(clause=>/不吃|不能吃|过敏|忌口|(?:我|我们).*(?:(?<!不)喜欢|爱吃|偏好)|口味(?:是|为)|我们.{0,10}[人位]|预算(?:是|为|改)|(?:人均|每人|全团).*\d.*(?:元|块)/.test(clause)).join('，');
+}
 async function chatTravelWithProfile(body,options){
   const context=conversationContext(body),previous=context.profile,text=body.description.trim(),mode=body.mode==='ai'?'ai':'demo';
   const original=normalizeRequest({...body,description:'',hours:undefined}),emit=e=>options.onProgress?.(e),trace=[];
@@ -216,32 +239,53 @@ async function chatTravelWithProfile(body,options){
     else decision=await ask('旅行对话 Agent',personalDialoguePrompt,dialogueData,options);
   }else decision={intent:localIntent(text),reply:localAnswer(text,original)};
   if(!['answer','plan','clarify'].includes(decision.intent)||typeof decision.reply!=='string'||!decision.reply.trim())throw new Error('对话 Agent 没有返回有效回答，请重试。');
+  const savedTrip=options.advisorEnabled===true&&mode==='ai'&&body.currentPlan?.city===profileValue(previous,'destination')&&Array.isArray(body.currentPlan?.stops);
+  const restartInterview=/(?:重新|从头)(?:了解|梳理|询问|问|采访|定制)|(?:深入|详细)(?:了解|询问|采访|定制)|再问我.*(?:偏好|需求)|补(?:全|齐|充).{0,8}(?:旅行)?偏好|继续了解我/.test(text);
+  const guideRevision=savedTrip&&!settingsUpdate?requestedGuideRevision(text):null;
+  const contentCommand=savedTrip&&!settingsUpdate&&(restartInterview||guideRevision||purelyVagueFeedback(text));
+  const commandFacts=contentCommand?guideCommandFacts(text):'';
   const allowDefaults=body.allowDefaults===true||/按默认|默认安排|先出.*(?:方案|草案)|先给.*(?:方案|行程|路线|建议)|先安排|你决定|你来定|随便推荐|不用问|直接安排/.test(text);
-  const ordinaryQuestion=!settingsUpdate&&informationQuestion(text),explicitQuestionFacts=options.advisorEnabled&&ordinaryQuestion?questionFacts(text):'',patch=ordinaryQuestion||settingsUpdate?{}:groundedProfilePatch(decision,text,previous);
+  const ordinaryQuestion=!settingsUpdate&&!contentCommand&&informationQuestion(text),explicitQuestionFacts=options.advisorEnabled&&ordinaryQuestion?questionFacts(text):'',patch=ordinaryQuestion||settingsUpdate||contentCommand?{}:groundedProfilePatch(decision,text,previous);
   // A requested draft authorizes tentative defaults in the same revision as this turn's facts.
   let mergeText=allowDefaults?`${text}\n按默认`:text;
-  const selectedCity=ordinaryQuestion||settingsUpdate?null:manualDestinationForTurn(body,mergeText,previous,patch);
+  const selectedCity=ordinaryQuestion||settingsUpdate||contentCommand?null:manualDestinationForTurn(body,mergeText,previous,patch);
   if(selectedCity){
     patch.destination={value:selectedCity,status:'confirmed'};
     // A touched dropdown is explicit user input, converted to text for the same safe merger.
     mergeText=`目的地是${selectedCity}。\n${mergeText}`;
   }
-  const updated=settingsUpdate??(ordinaryQuestion?(explicitQuestionFacts?updateTravelProfile(previous,{text:explicitQuestionFacts,patch:groundedProfilePatch(decision,explicitQuestionFacts,previous)}):{profile:previous,changed:false,changes:[]}):updateTravelProfile(previous,{text:mergeText,patch,destination:body.textRevision===false?body.destination:undefined,hours:body.textRevision===false?body.hours:undefined}));
+  const updated=settingsUpdate??(contentCommand?(commandFacts?updateTravelProfile(previous,{text:commandFacts,patch:groundedProfilePatch(decision,commandFacts,previous)}):{profile:previous,changed:false,changes:[]}):ordinaryQuestion?(explicitQuestionFacts?updateTravelProfile(previous,{text:explicitQuestionFacts,patch:groundedProfilePatch(decision,explicitQuestionFacts,previous)}):{profile:previous,changed:false,changes:[]}):updateTravelProfile(previous,{text:mergeText,patch,destination:body.textRevision===false?body.destination:undefined,hours:body.textRevision===false?body.hours:undefined}));
   let profile=updated.profile;
+  const clarify=(questions,reason='')=>{
+    profile={...profile,followUps:questions.slice(0,options.advisorEnabled?3:2)};
+    if(updated.changed||JSON.stringify(previous.followUps)!==JSON.stringify(profile.followUps))emit({type:'profile',profile});
+    return {kind:'clarify',status:'needs-info',assistantReply:[reason||'我已记下你提供的条件。',...profile.followUps.map(q=>q.question)].join('\n'),profile,followUps:profile.followUps,mode,trace};
+  };
   stage('对话 Agent','complete',ordinaryQuestion?updated.changed?'已记下本轮明确偏好，回答问题并保留当前路线':'识别为问答，保留需求和当前行程':updated.changed?'已整理本轮明确提供的需求':'已沿用保存的需求');
   if(settingsUpdate&&!settingsUpdate.changed)return {kind:'answer',status:'answered',assistantReply:'这些设置与当前旅行条件一致，行程保持不变。',profile:previous,mode,trace};
+  if(savedTrip&&!settingsUpdate&&restartInterview){
+    const questions=travelFollowUps(profile,{detailed:true});
+    return clarify(questions.length?questions:[feedbackFollowUp({},profile)],questions.length?'原路线继续保留，我们补充还没确认的偏好。':'现有偏好都已确认，原路线继续保留。');
+  }
+  if(savedTrip&&!settingsUpdate&&!guideRevision&&!updated.changed&&!requestsNewRoute(text)&&(feedbackSignal(text)||decision.intent==='clarify'&&decision.followUp&&!ordinaryQuestion))return clarify([feedbackFollowUp(decision,profile)],'原行程和攻略先保留，我想先确认你希望改善的部分。');
+  if(guideRevision){
+    if(Object.hasOwn(guideRevision,'dayIndex')&&!body.currentPlan.days?.some(day=>day.dayIndex===guideRevision.dayIndex))return clarify([feedbackFollowUp({},profile)],'当前没有这一天，请说明要补充哪一天的攻略。');
+    profile={...profile,followUps:[]};
+    if(updated.changed)emit({type:'profile',profile});
+    if(updated.changes.some(field=>field!=='diet'))guideRevision.focus=['all'];
+    else if(updated.changes.includes('diet')&&!guideRevision.focus.includes('all'))guideRevision.focus=[...new Set([...guideRevision.focus,'food'])];
+    stage('攻略顾问','working','正在沿用既有路线补充你指定的攻略内容');
+    const revisedGuide=await enrichTravelPlan(body.currentPlan,{profile,description:text,history:context.history,revision:guideRevision,previousGuide:body.currentPlan.guide},{...options,researchContext:dialogueResearch});
+    const failed=revisedGuide.status==='unavailable';
+    stage('攻略顾问',failed?'error':'complete',failed?'本次攻略更新未完成，保留上一版内容':'已更新指定攻略，地点与日期顺序保持不变');
+    return {...body.currentPlan,kind:'plan',status:'ready',profile,...(updated.changed?{input:travelProfileInput(profile,body.currentPlan.input||original)}:{}),mode,trace,guide:failed?body.currentPlan.guide:revisedGuide,guideUpdateStatus:failed?'failed':'updated',assistantReply:failed?'这次未能完成攻略更新，已保留上一版攻略和原路线。可以稍后重试，或把想补充的部分说得更具体。':'已补充你指定的攻略内容，沿用原来的日期、地点和顺序。你可以继续说哪里需要调整。',changeSummary:failed?'攻略更新未完成，保留上一版':'已更新攻略，原路线保留',...(dialogueResearch?{research:dialogueResearch}:{})};
+  }
   if(ordinaryQuestion||(decision.intent==='answer'&&!updated.changed&&!allowDefaults)){
     if(updated.changed)emit({type:'profile',profile});
     return {kind:'answer',status:'answered',assistantReply:short(decision.reply,1800),profile:updated.changed?profile:previous,mode,trace,...(dialogueResearch?{research:dialogueResearch,sourceIds:decision.sourceIds||[]}:{} )};
   }
   const continuingTrip=body.currentPlan?.city===profileValue(profile,'destination')&&Array.isArray(body.currentPlan?.stops);
-  const restartInterview=/(?:重新|从头)(?:了解|梳理|询问|问|采访|定制)|(?:深入|详细)(?:了解|询问|采访|定制)|再问我.*(?:偏好|需求)/.test(text);
   const followUps=travelFollowUps(profile,{allowDefaults,detailed:mode==='ai'&&options.advisorEnabled===true&&!settingsUpdate&&(!continuingTrip||restartInterview)});
-  const clarify=(questions,reason='')=>{
-    profile={...profile,followUps:questions.slice(0,options.advisorEnabled?3:2)};
-    if(updated.changed)emit({type:'profile',profile});
-    return {kind:'clarify',status:'needs-info',assistantReply:[reason||'我已记下你提供的条件。',...profile.followUps.map(q=>q.question)].join('\n'),profile,followUps:profile.followUps,mode,trace};
-  };
   if(followUps.length)return clarify(followUps);
   profile={...profile,followUps:[]};
   const input=travelProfileInput(profile,allowDefaults&&profile.fields.dailyHours.status==='missing'?{...original,hours:8}:original);input.description=text;
@@ -369,7 +413,8 @@ export async function chatTravel(body,options={}){
     const plan=applyItineraryEdit(body,body.itineraryEdit);options.onProgress?.({type:'stage',role:'总控 Agent',status:'complete',detail:'已校验明确选择的地点与每日安排'});return plan;
   }
   if(Object.hasOwn(body,'profile')){
-    const dayEdit=!Object.hasOwn(body,'tripSettings')?detectTravelDayEdit(body.description):null;
+    const detailEdit=options.advisorEnabled===true&&body.mode==='ai'&&body.currentPlan&&requestedGuideRevision(body.description);
+    const dayEdit=!Object.hasOwn(body,'tripSettings')&&!detailEdit?detectTravelDayEdit(body.description):null;
     if(dayEdit){const result=applyTravelDayEdit(body,dayEdit);options.onProgress?.({type:'stage',role:'总控 Agent',status:result.kind==='plan'?'complete':'error',detail:result.kind==='plan'?`仅调整第${dayEdit.dayIndex}天，保留其他日期与全程需求`:result.assistantReply});return result;}
     return chatTravelWithProfile(body,options);
   }

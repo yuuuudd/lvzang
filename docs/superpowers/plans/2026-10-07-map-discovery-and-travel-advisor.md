@@ -57,3 +57,13 @@ Files: travel-research.js, travel-agent.js, public/src/travel-profile.js, public
 - [x] 更新使用说明、配置边界、完成记录；本地提交并重启服务。
 
 完成记录见 [旅行顾问与地图验证](../../travel-advisor-verification.md)。
+
+## 追加：顾问入口与持续反馈
+
+用户截图显示窄视口首屏仍被旧参数表单占据；补充需求是不满意后能继续沟通改善攻略。
+
+- [x] 顶部提供可见的 DeepSeek 对话、偏好采访、反馈与攻略补充入口；默认折叠时间表单，保留原值与已有输入草稿。
+- [x] 已有方案的笼统不满意先追问；明确补充攻略更新内容并保留路线，失败保留原攻略；普通咨询不改路线。
+- [x] 检查按钮操作、首屏可见性、输入和存档保留；复核旧时间设置与单日修订，真实页面截图证明已更新。
+
+复现：`node tests/travel-advisor-entry.browser.js` 在 5 秒内找不到可见的 `#advisor-continue`，与用户看不到新入口的问题一致。

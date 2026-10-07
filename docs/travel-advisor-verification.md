@@ -2,6 +2,16 @@
 
 日期：2026-10-07。范围：联网资料、详细攻略、连续对话、按日修改、地图探索与明确增删行程。
 
+## 同日追加：可见入口与持续反馈
+
+用户正在查看另一个同地址标签页，旧界面把参数表单放在首屏，新顾问功能也缺少显眼入口。已将 DeepSeek 入口和偏好采访、反馈、攻略补充三个操作放到顶部，默认折叠设置，窄屏把输入框放在入口之后。
+
+- 最新 `npm test`：481 项通过、0 失败；新增 6 个顾问反馈行为用例。
+- `travel-advisor-entry.browser.js` 从找不到可见入口的红灯变为通过，验证 390/580/1440px、原方案与输入草稿保留、显式按钮使用 AI、攻略失败不显示成功。
+- `travel-guide.browser.js`、`travel-settings.browser.js`、`travel-day-edit.browser.js` 通过。1440×704 且有三条追问时聊天区域仍高于 100px，输入框在视口内。
+- 真实 DeepSeek 两轮验证通过：笼统不满意后追问改善方向；随后补充玩法与餐饮，返回 `guideUpdateStatus: updated`，原 stops/days 完全保持。独立合成旅行用作测试，不改用户存档。
+- 已重启本机服务并刷新用户当前标签页，页面证据在 `artifacts/map-advisor/advisor-entry-live.jpg`。
+
 ## 自动化
 
 - `npm test`：475 项通过，0 失败、0 跳过。

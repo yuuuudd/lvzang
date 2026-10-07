@@ -328,3 +328,59 @@ test('diet and companion revisions retain accepted places while refreshing advic
     assert.equal(result.status,'ready');assert.equal(result.stops[0].id,'gz-museum');assert.equal(result.guide.days[0].stops[0].food[0].name,'粤式早茶');assert.equal(stub.calls.length,3);assert.ok(!stub.calls.some(call=>call.messages[0].content.includes('你是城市旅行顾问')));assert.equal(currentPlan.guide.days[0].stops[0].food[0].name,'辣椒炒肉');
   }
 });
+
+function savedAdvisorTrip(){
+  const profile=emptyTravelProfile();for(const [field,value]of Object.entries({destination:'广州',dayCount:2,dailyHours:4,startTime:'09:00',pace:'normal'}))profile.fields[field]={value,status:'confirmed'};
+  return {...structuredClone(plan),city:'广州',title:'广州两天',input:{destination:'广州',dayCount:2,dailyHours:4,hours:4},profile,guide:validateTravelGuide(guide(),plan,successful)};
+}
+
+test('vague dissatisfaction asks a grounded follow-up without changing the accepted plan or confirming guessed preferences',async()=>{
+  for(const description of ['这个攻略不满意','我不喜欢，改善一下','优化一下']){
+    const currentPlan=savedAdvisorTrip(),before=JSON.stringify(currentPlan),stub=provider([{intent:'plan',reply:'我来改善。',profilePatch:{interests:['徒步']},followUp:{field:'diet',question:'你希望先把餐饮建议写具体，还是调整口味和忌口？'}}]);
+    const result=await chatTravel({description,profile:currentPlan.profile,currentPlan,mode:'ai',textRevision:true},{...stub,advisorEnabled:true});
+    assert.equal(result.kind,'clarify');assert.deepEqual(result.profile.fields,currentPlan.profile.fields);assert.equal(result.followUps[0].field,'diet');assert.match(result.assistantReply,/餐饮/);assert.equal(result.stops,undefined);assert.equal(JSON.stringify(currentPlan),before);assert.equal(stub.calls.length,1);
+    const next=provider([{intent:'plan',reply:'把餐饮写得更具体。'},request=>{const value=matchingGuide(request);value.days[0].stops[0].food[0].note='两人可先选清淡点心，再按饥饿程度加餐，实际菜单待确认。';return value;}]);
+    const revised=await chatTravel({description:'把餐饮写具体点',profile:result.profile,currentPlan,mode:'ai',textRevision:true},{...next,advisorEnabled:true});
+    assert.equal(revised.guideUpdateStatus,'updated');assert.deepEqual(revised.stops,currentPlan.stops);assert.deepEqual(revised.days,currentPlan.days);assert.deepEqual(revised.profile.fields,currentPlan.profile.fields);assert.match(revised.guide.days[0].stops[0].food[0].note,/两人/);assert.equal(revised.guide.days[0].stops[0].howToPlay,currentPlan.guide.days[0].stops[0].howToPlay);assert.equal(next.calls.length,2);
+  }
+});
+
+test('specific guide improvements keep all route days and only change the requested guide section',async()=>{
+  const currentPlan=savedAdvisorTrip(),before=JSON.stringify(currentPlan),stub=provider([{intent:'answer',reply:'我来补充。'},request=>{
+    const value=matchingGuide(request);value.summary='模型另写的总述';value.days[0].stops[0].howToPlay='不应覆盖原玩法。';value.days[0].stops[0].rainyAlternative='下雨时先在当前场馆内休息，再根据雨势决定是否继续；不新增地点。';return value;
+  }]);
+  const result=await chatTravel({description:'请把第1天的雨天备选补充详细一点，路线不变',profile:currentPlan.profile,currentPlan,mode:'ai',textRevision:true},{...stub,advisorEnabled:true});
+  assert.equal(result.guideUpdateStatus,'updated');assert.deepEqual(result.stops,currentPlan.stops);assert.deepEqual(result.days,currentPlan.days);assert.equal(result.guide.summary,currentPlan.guide.summary);assert.equal(result.guide.days[0].stops[0].howToPlay,currentPlan.guide.days[0].stops[0].howToPlay);assert.match(result.guide.days[0].stops[0].rainyAlternative,/场馆内休息/);assert.deepEqual(result.guide.days[1],currentPlan.guide.days[1]);assert.equal(JSON.stringify(currentPlan),before);
+  const question=provider([{intent:'answer',reply:'下雨可以先在已选场馆内休息，不必改路线。'}]);
+  const answer=await chatTravel({description:'下雨怎么玩？',profile:currentPlan.profile,currentPlan,mode:'ai',textRevision:true},{...question,advisorEnabled:true});assert.equal(answer.kind,'answer');assert.equal(answer.guide,undefined);assert.equal(answer.stops,undefined);assert.equal(question.calls.length,1);
+  const missing=provider([{intent:'plan',reply:'补充雨天攻略。'}]);
+  const invalid=await chatTravel({description:'补充第9天的雨天攻略',profile:currentPlan.profile,currentPlan,mode:'ai',textRevision:true},{...missing,advisorEnabled:true});assert.equal(invalid.kind,'clarify');assert.match(invalid.assistantReply,/没有这一天/);assert.equal(invalid.guide,undefined);assert.equal(missing.calls.length,1);
+});
+
+test('failed guide revision keeps the complete old guide and states that no update was completed',async()=>{
+  const currentPlan=savedAdvisorTrip(),stub=provider([{intent:'plan',reply:'我来补充餐饮。'},{...guide(),days:[]}]);
+  const result=await chatTravel({description:'路线不要变，补充餐饮攻略',profile:currentPlan.profile,currentPlan,mode:'ai',textRevision:true},{...stub,advisorEnabled:true});
+  assert.equal(result.guideUpdateStatus,'failed');assert.deepEqual(result.guide,currentPlan.guide);assert.deepEqual(result.stops,currentPlan.stops);assert.deepEqual(result.days,currentPlan.days);assert.match(result.assistantReply,/未能|没能|未完成/);assert.match(result.assistantReply,/上一版|原攻略/);assert.doesNotMatch(result.assistantReply,/已补充|已更新攻略/);
+});
+
+test('the explicit preference interview entry asks missing fields without rebuilding an existing route',async()=>{
+  const currentPlan=savedAdvisorTrip(),stub=provider([{intent:'plan',reply:'继续补充偏好。'}]);
+  const result=await chatTravel({description:'我想补全旅行偏好。请继续了解我，每次只问2到3个还没确认的问题，已确认的不重复问；先保留已有路线，不要重新生成行程。',profile:currentPlan.profile,currentPlan,mode:'ai',textRevision:true},{...stub,advisorEnabled:true});
+  assert.equal(result.kind,'clarify');assert.deepEqual(result.followUps.map(item=>item.field),['companions','crowdPreference','interests']);assert.deepEqual(result.profile.fields,currentPlan.profile.fields);assert.equal(result.stops,undefined);assert.equal(stub.calls.length,1);
+});
+
+test('the full guide entry updates content while a simultaneous explicit dietary fact stays saved',async()=>{
+  for(const description of ['请沿用当前已确认的路线、日期和地点顺序，补充详细攻略：每站怎么玩、附近吃什么、交通与预约提醒、雨天备选，并给出资料来源。不要更换景点或重新安排路线。','我不吃辣，补充餐饮攻略']){
+    const currentPlan=savedAdvisorTrip(),stub=provider([{intent:'plan',reply:'按原路线补充。',...(description.includes('不吃辣')?{profilePatch:{diet:{restrictions:['辣']}}}:{})},matchingGuide]);
+    const result=await chatTravel({description,profile:currentPlan.profile,currentPlan,mode:'ai',textRevision:true},{...stub,advisorEnabled:true});
+    assert.equal(result.guideUpdateStatus,'updated');assert.deepEqual(result.stops,currentPlan.stops);assert.deepEqual(result.days,currentPlan.days);assert.equal(result.profile.fields.excludedPlaces.status,'missing');assert.equal(stub.calls.length,2);
+    if(description.includes('不吃辣'))assert.deepEqual(result.profile.fields.diet.value.restrictions,['辣']);else assert.deepEqual(result.profile.fields,currentPlan.profile.fields);
+  }
+});
+
+test('a complete preference profile gets an open improvement question and invalid model follow-up fields are ignored',async()=>{
+  const currentPlan=savedAdvisorTrip();for(const [field,value] of Object.entries({companions:{count:2},budget:{amount:500,scope:'per-person',period:'trip'},interests:['建筑'],requiredPlaces:[],excludedPlaces:[],crowdPreference:'mixed',diet:{preferences:['粤菜'],restrictions:[]},stayArea:'未定',startArea:'未定',transport:'mixed',travelDates:{start:null,end:null}}))currentPlan.profile.fields[field]={value,status:'confirmed'};
+  const stub=provider([{intent:'clarify',reply:'继续了解。',followUp:{field:'unknownField',question:'模型错误字段'}}]);
+  const result=await chatTravel({description:'我想补全旅行偏好，请继续了解我，保留已有路线。',profile:currentPlan.profile,currentPlan,mode:'ai',textRevision:true},{...stub,advisorEnabled:true});
+  assert.equal(result.kind,'clarify');assert.equal(result.followUps.length,1);assert.equal(result.followUps[0].field,'interests');assert.match(result.assistantReply,/都已确认|最想改/);assert.equal(result.stops,undefined);assert.equal(stub.calls.length,1);
+});
