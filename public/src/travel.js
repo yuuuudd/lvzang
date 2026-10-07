@@ -89,22 +89,36 @@ const interviewPrompts={
   pause:'先暂停完整旅行问答，保留已经记录的条件和当前路线。',
   plan:'问答完成，请按这些条件规划行程。'
 };
+function renderInterviewRecords(interview){
+  const answers=interview?.answers??[],additions=interview?.additions??[];
+  $('interview-records-disclosure').hidden=answers.length+additions.length===0;
+  $('interview-records-count').textContent=`${answers.length} 条回答${additions.length?` · ${additions.length} 条补充`:''}`;
+  const records=answers.map(item=>{
+    const row=document.createElement('li'),question=document.createElement('p'),answer=document.createElement('p');
+    question.className='interview-record-question';answer.className='interview-record-answer';
+    question.textContent=item.question;answer.textContent=item.answer;row.append(question,answer);return row;
+  });
+  $('interview-records-list').replaceChildren(...records);
+  $('interview-additions-list').hidden=!additions.length;
+  $('interview-additions-list').replaceChildren(...additions.map(text=>{const row=document.createElement('li');row.textContent=text;return row;}));
+}
 function renderInterview(){
   const interview=state.profile.interview,phase=interview?.status;
+  renderInterviewRecords(interview);
   const present=['active','ready','paused'].includes(phase);
-  $('travel-brief').placeholder=phase==='active'&&interview.topic==='budget'?'例如：每人全程1000元，或“不限预算”':phase==='active'&&interview.topic==='travelDates'?'填写具体出游日期，尚未确定可先跳过':'直接回答就好，一次回答一个也可以';
+  $('travel-brief').placeholder=phase==='active'?'按你的想法回答，怎么说都可以':phase==='ready'?'还有想补充的可以直接说':'直接回答就好，一次回答一个也可以';
   $('advisor-preferences').textContent=present?'继续问答':'开始完整问答';
   $('interview-controls').hidden=!present;
   if(!present)return;
   const progress=Number.isFinite(interview.step)&&Number.isFinite(interview.total)?` · ${interview.step} / ${interview.total}`:'';
-  $('interview-progress').textContent=(phase==='paused'?'问答已暂停':phase==='ready'?'问答已完成，确认后开始规划':'完整旅行问答')+progress+' · 随时补充或修改想法';
+  $('interview-progress').textContent=(phase==='paused'?'问答已暂停':phase==='ready'?'问答已完成，可以补充或开始规划':'完整旅行问答')+progress;
   $('interview-skip').hidden=phase!=='active';$('interview-pause').hidden=phase==='paused';
   $('interview-resume').hidden=phase!=='paused';$('interview-plan').hidden=phase!=='ready';
   document.querySelectorAll('.interview-actions button').forEach(button=>button.disabled=busy);
 }
 function renderAdvisorEntry(){
   const accepted=Boolean(state.plan&&!resetPrevious);
-  $('advisor-context').textContent=accepted?state.plan.guide?'沿用已保存的方案，随时补充或修改想法，也可以直接说哪里不满意。':'当前保留的是之前方案。可补充详细攻略，也可随时补充或修改想法。':resetPrevious?'正在了解这次新旅行。说说想法，我会逐步记住你的偏好。':'可以从完整问答开始，一次聊一题，随时补充或修改想法。';
+  $('advisor-context').textContent=['active','ready','paused'].includes(state.profile.interview?.status)?'先逐题聊你的想法，回答会原样记录。答完后，一起交给 DeepSeek 理解和规划。':accepted?state.plan.guide?'沿用已保存的方案，随时补充或修改想法，也可以直接说哪里不满意。':'当前保留的是之前方案。可补充详细攻略，也可随时补充或修改想法。':resetPrevious?'正在了解这次新旅行。说说想法，我会逐步记住你的偏好。':'可以从完整问答开始，一次聊一题，随时补充或修改想法。';
   document.querySelectorAll('[data-advisor-action]').forEach(button=>button.disabled=busy);
   $('advisor-guide').disabled=busy||!accepted;
   $('advisor-guide').title=accepted?'沿用已确认的路线，补充玩法、餐饮和提醒':'先聊出一份自己的路线，再补充详细攻略';
@@ -205,6 +219,7 @@ async function runPlan(usePrevious=true,settingsSubmission=null){
   renderAdvisorEntry();
   document.querySelectorAll('[data-remove-stop]').forEach(button=>button.disabled=true);
   // Capture this explicit submission, then load the chosen identity before taking any saved context.
+  const submittedText=$('travel-brief').value;
   const turnDraft={description:settingsSubmission?.description||$('travel-brief').value||`帮我安排${destinationTouched?$('destination').value:'一条旅行'}路线`,destination:destinationTouched?$('destination').value:'',hours:$('hours').value||undefined,textRevision:!destinationTouched,mode:$('agent-mode').value};
   let settingsDraft=settingsSubmission?{text:$('travel-brief').value,destination:$('destination').value,destinationTouched}:null;
   $('trip-settings-fields').disabled=true;const button=$('plan-button');button.disabled=true;$('new-trip').disabled=true;$('plan-form').setAttribute('aria-busy','true');
@@ -237,7 +252,7 @@ async function runPlan(usePrevious=true,settingsSubmission=null){
     if(result.status!=='ready')throw new Error(result.assumptions.join(' '));
     const acceptedProfile=result.profile?normalizeTravelProfile(result.profile):beforeProfile,guideFailed=result.guideUpdateStatus==='failed';
     state.plan=result;state.profile=acceptedProfile;state.planningReset=false;activeDay=settingsSubmission?.itineraryEdit?Math.max(0,(settingsSubmission.itineraryEdit.dayIndex??beforeDay+1)-1):Number.isInteger(result.editedDayIndex)?Math.max(0,result.editedDayIndex-1):result.guideUpdateStatus?beforeDay:0;resetPrevious=false;destinationTouched=false;$('destination').value=result.city;$('hours').value='';setMessage(reply,result.assistantReply||result.changeSummary,guideFailed?'攻略更新未完成':result.guideUpdateStatus==='updated'?'详细攻略已补充':settingsSubmission?.advisorAction?'顾问已回复':settingsSubmission?.itineraryEdit?'行程地点已更新':settingsSubmission?'旅行条件已更新':result.mode==='ai'?'AI 协作已完成':'本地示范已完成');remember('assistant',result.assistantReply||result.changeSummary);renderRoute();renderConstraints(result.input,before.input,false,state.profile,result.days?.[activeDay]);renderRequirements(state.profile);finishPhases(result);const saved=persist(),chatSaved=persistChat();reply.classList.remove('pending');$('workspace-title').textContent=result.city+'城市漫游';$('chat-session-label').textContent='可以继续提问，也可以修改方案';canvasStatus(guideFailed?'攻略更新未完成 · 原方案已保留':saved&&chatSaved?'方案已更新，继续说说你的想法':'方案已更新 · 尚未保存',false,guideFailed||!saved||!chatSaved);status(!saved||!chatSaved?'方案或对话暂留在页面，尚未保存。':guideFailed?'攻略更新未完成，原方案已保留，可继续反馈或稍后重试。':'方案已更新。',guideFailed);revealChatMessage(reply);return !guideFailed;
-  }catch(error){state.plan=beforePlan;state.profile=beforeProfile;state.planningReset=beforeReset;activeDay=beforeDay;history=body.history.slice();const message=error.name==='AbortError'?'已停止本次修订，前一方案已保留。':error.message||'网络异常，前一方案已保留。';renderRoute();renderConstraints(before.input,null,false,beforeProfile,before.days?.[activeDay],Boolean(beforeProfile.followUps.length));renderRequirements(beforeProfile);failPhases(message);setMessage(reply,message,'这次修订未保存');reply.classList.remove('pending');reply.classList.add('error');canvasStatus(message,false,true);status(message,true);revealChatMessage(reply);return false;}finally{busy=false;controller=null;$('trip-settings-fields').disabled=false;document.querySelectorAll('[data-remove-stop]').forEach(button=>button.disabled=false);if(settingsDraft){if(!settingsSubmission?.advisorAction)$('travel-brief').value=settingsDraft.text;destinationTouched=settingsDraft.destinationTouched;if(destinationTouched)$('destination').value=settingsDraft.destination;}button.disabled=false;$('new-trip').disabled=false;$('cancel-plan').hidden=true;$('plan-form').removeAttribute('aria-busy');$('route-section').classList.remove('pending');$('day-selector').querySelectorAll('button').forEach(dayButton=>dayButton.disabled=false);$('route-state').textContent=state.profile.followUps.length?'待补充条件':state.plan?'已确认':'示例';renderAdvisorEntry();}
+  }catch(error){if(!settingsSubmission&&submittedText&&!$('travel-brief').value.trim())$('travel-brief').value=submittedText;state.plan=beforePlan;state.profile=beforeProfile;state.planningReset=beforeReset;activeDay=beforeDay;history=body.history.slice();const message=error.name==='AbortError'?'已停止本次修订，前一方案已保留。':error.message||'网络异常，前一方案已保留。';renderRoute();renderConstraints(before.input,null,false,beforeProfile,before.days?.[activeDay],Boolean(beforeProfile.followUps.length));renderRequirements(beforeProfile);failPhases(message);setMessage(reply,message,'这次修订未保存');reply.classList.remove('pending');reply.classList.add('error');canvasStatus(message,false,true);status(message,true);revealChatMessage(reply);return false;}finally{busy=false;controller=null;$('trip-settings-fields').disabled=false;document.querySelectorAll('[data-remove-stop]').forEach(button=>button.disabled=false);if(settingsDraft){if(!settingsSubmission?.advisorAction)$('travel-brief').value=settingsDraft.text;destinationTouched=settingsDraft.destinationTouched;if(destinationTouched)$('destination').value=settingsDraft.destination;}button.disabled=false;$('new-trip').disabled=false;$('cancel-plan').hidden=true;$('plan-form').removeAttribute('aria-busy');$('route-section').classList.remove('pending');$('day-selector').querySelectorAll('button').forEach(dayButton=>dayButton.disabled=false);$('route-state').textContent=state.profile.followUps.length?'待补充条件':state.plan?'已确认':'示例';renderAdvisorEntry();}
 }
 $('plan-form').onsubmit=e=>{e.preventDefault();runPlan();};
 $('travel-brief').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();runPlan();}};

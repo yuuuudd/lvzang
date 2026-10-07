@@ -22,6 +22,7 @@ async function verifyIncrementalAnswers(){
   await page.reload();
   const state=()=>page.evaluate(()=>JSON.parse(localStorage.getItem('lvzang.v1')));
   const clickSend=async text=>{await page.locator('#travel-brief').fill(text);const response=page.waitForResponse(response=>response.url().endsWith('/api/travel-chat/stream'));await page.getByRole('button',{name:'发送消息',exact:true}).click();await response;await page.waitForFunction(()=>!document.getElementById('plan-button').disabled);};
+  const enterSend=async text=>{await page.locator('#travel-brief').fill(text);const response=page.waitForResponse(response=>response.url().endsWith('/api/travel-chat/stream'));await page.locator('#travel-brief').press('Enter');await response;await page.waitForFunction(()=>!document.getElementById('plan-button').disabled);};
   await page.locator('#advisor-preferences').click();await page.waitForFunction(()=>!document.getElementById('plan-button').disabled);
   assert.equal((await state()).profile.interview.topic,'travelDates');
   await clickSend('3天');
@@ -31,20 +32,15 @@ async function verifyIncrementalAnswers(){
   assert.equal(current.profile.fields.travelDates.value,null,'A duration answer must not fabricate calendar dates');
   assert.equal(current.profile.fields.travelDates.status,'missing');
   assert.equal(current.profile.interview.topic,'startTime','Repeating the accepted duration at the date question advances to the next unconfirmed topic');
-  assert.ok(current.profile.interview.skipped.includes('travelDates'));
+  assert.equal(current.profile.interview.answers.find(answer=>answer.field==='travelDates')?.answer,'3天','The answer is kept verbatim even though it does not specify dates');
   assert.deepEqual(current.plan,plan,'Clarifying dates and duration preserves the accepted route');
   await clickSend('每天早上9点开始');assert.equal((await state()).profile.interview.topic,'companions');
   await clickSend('2个成年人，没有老人小孩');assert.equal((await state()).profile.interview.topic,'budget');
   await clickSend('500');current=await state();
-  assert.equal(current.profile.fields.budget.value.amount,500);
-  assert.equal(current.profile.fields.budget.value.scope,'unknown');assert.equal(current.profile.fields.budget.value.period,'unknown');
-  assert.equal(current.profile.interview.topic,'budget','A partial budget answer keeps the budget topic until its scope is clear');
-  const budgetReply=await page.locator('.chat-message.assistant .message-content').last().textContent();
-  assert.match(budgetReply,/500/,'The reply explicitly acknowledges the amount already received');
-  assert.match(budgetReply,/每人.*全团/);assert.match(budgetReply,/全程.*每天/);
-  await clickSend('每人全程');current=await state();
-  assert.equal(current.profile.fields.budget.value.amount,500);assert.equal(current.profile.fields.budget.value.scope,'per-person');assert.equal(current.profile.fields.budget.value.period,'trip');
-  assert.equal(current.profile.interview.topic,'crowdPreference');assert.deepEqual(current.plan,plan);
+  assert.equal(current.profile.interview.answers.find(answer=>answer.field==='budget')?.answer,'500');
+  assert.deepEqual(current.profile.fields.budget,profile.fields.budget,'Recording a raw amount does not invent its scope or confirm a parsed budget');
+  assert.equal(current.profile.interview.topic,'crowdPreference','Any nonempty budget answer advances without requiring a prescribed wording');
+  assert.deepEqual(current.plan,plan);
   const bytes=()=>page.evaluate(()=>({state:localStorage.getItem('lvzang.v1'),history:localStorage.getItem('lvzang.chat.v1')}));
   const beforeBlank=await bytes(),requestCount=requests.length,messageCount=await page.locator('.chat-message').count();
   await page.locator('#travel-brief').fill('   ');await page.getByRole('button',{name:'发送消息',exact:true}).click();await page.waitForFunction(()=>!document.getElementById('plan-button').disabled);
@@ -54,6 +50,22 @@ async function verifyIncrementalAnswers(){
   const input=await page.locator('#travel-brief').evaluate(element=>({focused:element===document.activeElement,validationMessage:element.validationMessage}));
   assert.equal(input.focused,true,'The empty composer receives focus for correction');
   assert.match(input.validationMessage+' '+await page.locator('#plan-status').textContent(),/输入|填写|内容/,'The input receives an actionable empty-message hint');
+  await enterSend('都安排');current=await state();
+  assert.equal(requests.at(-1).description,'都安排','Enter sends the actual short answer through HTTP');
+  assert.equal(current.profile.interview.answers.find(answer=>answer.field==='crowdPreference')?.answer,'都安排','The contextual short answer is preserved verbatim for final interpretation');
+  assert.equal(current.profile.interview.topic,'interests','A contextual both-choice answer advances exactly one topic');
+  assert.deepEqual(current.plan,plan);
+  await enterSend('美食、建筑、拍照');assert.equal((await state()).profile.interview.topic,'requiredPlaces');
+  await enterSend('没什么特别想去的');current=await state();
+  assert.equal(current.profile.interview.answers.find(answer=>answer.field==='requiredPlaces')?.answer,'没什么特别想去的');
+  assert.equal(current.profile.interview.topic,'excludedPlaces');assert.deepEqual(current.plan,plan);
+  await enterSend('没有不想去的');current=await state();
+  assert.equal(current.profile.interview.answers.find(answer=>answer.field==='excludedPlaces')?.answer,'没有不想去的');
+  assert.deepEqual(current.profile.fields,profile.fields,'Questionnaire collection does not turn raw wording into authoritative profile fields');
+  assert.equal(current.profile.interview.topic,'pace');assert.deepEqual(current.plan,plan);
+  await enterSend('可以轻松一点吗？');current=await state();
+  assert.equal(current.profile.interview.answers.find(answer=>answer.field==='pace')?.answer,'可以轻松一点吗？','A question-shaped answer is also recorded verbatim for the current question');
+  assert.equal(current.profile.interview.topic,'diet');assert.deepEqual(current.plan,plan);
   assert.deepEqual(errors,[]);
  }finally{await page.close();}
 }
@@ -107,32 +119,39 @@ try{
  }
  current=await state();assert.equal(current.profile.interview.status,'ready');
  assert.ok(seen.length>=10,'The interview must cover the full set of unconfirmed preferences');
- assert.equal(current.profile.fields.companions.value.count,2);
- assert.equal(current.profile.fields.budget.value.amount,1000);
- assert.ok(current.profile.fields.requiredPlaces.value.includes('广东省博物馆'));
- assert.ok(current.profile.fields.excludedPlaces.value.includes('广州塔'));
- assert.equal(current.profile.fields.startTime.value,'09:00');
- assert.equal(externalCalls,0,'The complete plain-answer questionnaire is deterministic');
+ for(const field of seen){const answer=current.profile.interview.answers.find(answer=>answer.field===field);assert.equal(answer?.answer,answers[field]);assert.ok(answer.question.length>0,'Each raw answer retains the question that elicited it');}
+ assert.deepEqual(current.profile.fields,profile.fields,'Structured preferences wait for the final whole-interview interpretation');
+ assert.equal(externalCalls,0,'Collecting the complete raw-answer questionnaire requires no model call');
  assert.equal(await page.locator('#interview-plan').isVisible(),true);
- assert.match(await page.locator('#interview-progress').textContent(),/问答已完成.*随时补充或修改/);
+ assert.match(await page.locator('#interview-progress').textContent(),/问答已完成，可以补充或开始规划.*\d+\s*\/\s*16/);
  await page.reload();assert.equal((await state()).profile.interview.status,'ready');
  assert.equal(await page.locator('#interview-plan').isVisible(),true);
  await send('再补充一下，还想去天环，预算改为每人全程900元');
  current=await state();assert.equal(current.profile.interview.status,'ready','Extra preferences after the interview still wait for explicit planning');
- assert.equal(current.profile.fields.budget.value.amount,900);
- assert.ok(current.profile.fields.requiredPlaces.value.includes('天环'));
+ assert.ok(current.profile.interview.additions.includes('再补充一下，还想去天环，预算改为每人全程900元'));
+ assert.deepEqual(current.profile.fields,profile.fields);
  assert.deepEqual(current.plan,plan);
  assert.equal(externalCalls,0);
  await send('预算改为每人全程900元');
  assert.equal((await state()).profile.interview.status,'ready','Repeating an accepted preference is not permission to generate a route');
+ assert.ok((await state()).profile.interview.additions.includes('预算改为每人全程900元'));
  assert.deepEqual((await state()).plan,plan);
  assert.equal(externalCalls,0);
+ current=await state();
+ const savedBytes=()=>page.evaluate(()=>({state:localStorage.getItem('lvzang.v1'),chat:localStorage.getItem('lvzang.chat.v1')}));
+ const beforeFailure=await savedBytes();
+ await clickAction('#interview-plan');
+ assert.ok(externalCalls>0,'Only explicit planning hands the collected questionnaire to the model');
+ assert.deepEqual(await savedBytes(),beforeFailure,'A failed final interpretation preserves all raw answers, additions, history and the old route');
+ assert.equal((await state()).profile.interview.status,'ready');
  // Planning itself has separate real-model coverage. Verify the explicit UI handoff here.
  await page.route('**/api/travel-chat/stream',route=>{
   const response={...plan,kind:'plan',profile:{...current.profile,interview:{...current.profile.interview,status:'completed'}},assistantReply:'已按你确认的条件更新攻略，你也可以继续补充想法。'};
   return route.fulfill({contentType:'application/x-ndjson',body:JSON.stringify({type:'result',response})+'\n'});
  });
  await clickAction('#interview-plan');assert.equal(requests.at(-1).interviewAction,'plan');
+ assert.deepEqual(requests.at(-1).profile.interview.answers,current.profile.interview.answers,'Explicit planning receives the complete original question/answer pairs');
+ assert.deepEqual(requests.at(-1).profile.interview.additions,current.profile.interview.additions);
  assert.equal((await state()).profile.interview.status,'completed');
  assert.equal(await page.locator('#travel-brief').isEnabled(),true);
  await page.locator('#travel-brief').fill('再补充一下，我还想去天环');
@@ -154,5 +173,5 @@ try{
  await unavailable.locator('#planner-tools-toggle').click();assert.equal(await unavailable.locator('#planner-tools-content').isVisible(),false);
  await unavailable.locator('#planner-tools-toggle').click();assert.equal(await unavailable.locator('#planner-tools-content').isVisible(),true);
  assert.deepEqual(errors,[]);
- console.log('PASS: real HTTP click-send duration-at-date advancement without invented dates, acknowledged partial budget then scope completion, empty-submit no request/history/progress changes; full interview, skip/pause/resume/reload, route and draft preservation, explicit plan handoff, responsive collapsed header and blocked UI storage.');
+ console.log('PASS: real HTTP click/Enter accepts and preserves raw date/duration, budget and contextual answers without per-question model calls; empty-submit no request/history/progress changes; full raw Q&A and additions, skip/pause/resume/reload, route and draft preservation, explicit whole-interview plan handoff, responsive collapsed header and blocked UI storage.');
 }finally{await browser.close();await new Promise(resolve=>server.close(resolve));}

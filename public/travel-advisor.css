@@ -27,6 +27,14 @@
 .requirements-disclosure>summary{padding:8px 0;font-size:11px;color:var(--muted);cursor:pointer}
 .requirements-disclosure[open]>summary{color:var(--ink)}
 .requirements-disclosure .trip-settings-form{margin-top:2px}
+.interview-records-disclosure>summary span{margin-left:5px;font-size:11px;color:var(--muted)}
+.interview-records-body{padding:2px 0 10px;font-size:13px;line-height:1.8;overflow-wrap:anywhere}
+#interview-records-list{margin:0;padding-left:22px}#interview-records-list>li{padding:8px 0;border-bottom:1px solid var(--line)}
+.interview-record-question{margin:0 0 5px;font-weight:600;white-space:pre-wrap}
+.interview-record-answer{margin:0;white-space:pre-wrap;color:var(--ink)}
+#interview-additions-list{margin:12px 0 0;padding:0;list-style:none}#interview-additions-list::before{content:'后续补充';display:block;font-weight:600;margin-bottom:5px}
+#interview-additions-list>li{margin:0 0 8px;white-space:pre-wrap}
+@media(max-width:767px){.interview-records-body{max-height:min(44dvh,360px);overflow-y:auto;overscroll-behavior:contain;padding-right:8px}}
 .guide-enrich-note{padding:11px 13px;border:1px solid #d7e5be;border-radius:9px;background:#f4f9ec}
 .guide-enrich-note p{margin:0 0 8px}.guide-enrich-note button{font-size:12px;min-height:36px;color:var(--green);text-align:left}
 @media(min-width:768px){.workspace{min-height:0}.chat-heading{padding-top:16px;padding-bottom:8px}.requirements-panel{max-height:min(17dvh,120px)}.chat-scroll{flex:1 1 0}}

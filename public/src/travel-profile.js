@@ -105,9 +105,15 @@ export function normalizeTravelProfile(value){
   });
   if(own(value,'interview')){
     const state=value.interview;
-    if(!object(state)||Object.keys(state).some(key=>!['status','topic','skipped','step','total'].includes(key))||!['active','ready','completed','paused'].includes(state.status)||!(state.topic===null||TRAVEL_INTERVIEW_TOPICS.includes(state.topic))||!Array.isArray(state.skipped)||state.skipped.length>TRAVEL_INTERVIEW_TOPICS.length||state.skipped.some(field=>!TRAVEL_INTERVIEW_TOPICS.includes(field)))throw new Error('旅行问答进度格式无效');
+    if(!object(state)||Object.keys(state).some(key=>!['status','topic','skipped','step','total','answers','additions','pendingQuestion'].includes(key))||!['active','ready','completed','paused'].includes(state.status)||!(state.topic===null||TRAVEL_INTERVIEW_TOPICS.includes(state.topic))||!Array.isArray(state.skipped)||state.skipped.length>TRAVEL_INTERVIEW_TOPICS.length||state.skipped.some(field=>!TRAVEL_INTERVIEW_TOPICS.includes(field)))throw new Error('旅行问答进度格式无效');
     if(state.status==='active'&&state.topic===null)throw new Error('进行中的旅行问答缺少当前主题');
     result.interview={status:state.status,topic:state.topic,skipped:[...new Set(state.skipped)],step:state.topic===null?TRAVEL_INTERVIEW_TOPICS.length:TRAVEL_INTERVIEW_TOPICS.indexOf(state.topic)+1,total:TRAVEL_INTERVIEW_TOPICS.length};
+    const answers=state.answers??[],additions=state.additions??[];
+    if(!Array.isArray(answers)||answers.length>32||!Array.isArray(additions)||additions.length>8)throw new Error('旅行问答记录数量无效');
+    const rawAnswer=value=>{if(typeof value!=='string'||!value.trim()||value.length>2000)throw new Error('旅行问答原文格式无效');return value;};
+    result.interview.answers=answers.map(item=>{if(!object(item)||Object.keys(item).some(key=>!['field','question','answer'].includes(key))||!TRAVEL_INTERVIEW_TOPICS.includes(item.field)||typeof item.question!=='string'||!item.question.trim()||item.question.length>240)throw new Error('旅行问答记录格式无效');return {field:item.field,question:item.question,answer:rawAnswer(item.answer)};});
+    result.interview.additions=additions.map(rawAnswer);
+    if(own(state,'pendingQuestion')){const pending=state.pendingQuestion;if(!object(pending)||Object.keys(pending).some(key=>!['field','question'].includes(key))||!TRAVEL_INTERVIEW_TOPICS.includes(pending.field)||typeof pending.question!=='string'||!pending.question.trim()||pending.question.length>240)throw new Error('旅行问答待确认问题格式无效');result.interview.pendingQuestion={field:pending.field,question:pending.question};}
     if(state.status==='active')result.followUps=result.followUps.filter(item=>item.field===state.topic).slice(0,1);
     else if(['ready','paused'].includes(state.status))result.followUps=[];
   }

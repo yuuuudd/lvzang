@@ -382,5 +382,5 @@ test('a complete preference profile reaches the explicit planning confirmation w
   const currentPlan=savedAdvisorTrip();for(const [field,value] of Object.entries({companions:{count:2},budget:{amount:500,scope:'per-person',period:'trip'},interests:['建筑'],requiredPlaces:[],excludedPlaces:[],crowdPreference:'mixed',diet:{preferences:['粤菜'],restrictions:[]},stayArea:'未定',startArea:'未定',transport:'mixed',travelDates:{start:null,end:null}}))currentPlan.profile.fields[field]={value,status:'confirmed'};
   const stub=provider([{intent:'clarify',reply:'继续了解。',followUp:{field:'unknownField',question:'模型错误字段'}}]);
   const result=await chatTravel({description:'我想补全旅行偏好，请继续了解我，保留已有路线。',profile:currentPlan.profile,currentPlan,mode:'ai',textRevision:true},{...stub,advisorEnabled:true});
-  assert.equal(result.kind,'clarify');assert.equal(result.followUps.length,0);assert.equal(result.profile.interview.status,'ready');assert.match(result.assistantReply,/继续补充或修改.*生成或更新攻略/s);assert.equal(result.stops,undefined);assert.equal(stub.calls.length,0);
+  assert.equal(result.kind,'clarify');assert.equal(result.followUps.length,0);assert.equal(result.profile.interview.status,'ready');assert.match(result.assistantReply,/继续补充|继续说/);assert.match(result.assistantReply,/DeepSeek.*规划|开始规划/s);assert.equal(result.stops,undefined);assert.equal(stub.calls.length,0);
 });
