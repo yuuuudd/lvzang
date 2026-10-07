@@ -1,4 +1,18 @@
 /* Local extension of the light travel workspace. Provider controls keep their own layer. */
+.map-discovery{padding:0 15px 12px;border-bottom:1px solid var(--line)}
+.map-discovery-filters{display:flex;flex-wrap:wrap;align-items:end;gap:8px}
+.map-discovery label{display:grid;gap:4px;font-size:11px;color:var(--muted);flex:1;min-width:100px}
+.map-discovery select,.map-discovery input{min-height:38px;border:1px solid var(--line);border-radius:7px;background:var(--surface);padding:7px 9px;color:var(--ink);width:100%;min-width:0}
+.map-discovery button{min-height:38px;font-size:11px;white-space:normal}
+#map-location-status,#map-search-status{margin:7px 0;line-height:1.6}
+#map-location-status[data-state="error"]{color:#a33b25}
+#map-search-form{display:flex;gap:6px}#map-search-form input{flex:1}#map-search-form button{flex-shrink:0}
+#map-search-results{display:grid;max-height:190px;overflow:auto;gap:4px}.map-search-choice{text-align:left;min-height:40px;padding:8px;border:1px solid var(--line);border-radius:6px;font-size:12px}
+#map-membership-actions{grid-column:1/-1}#map-membership-actions .fine{margin-top:5px}
+.map-current-location{display:block;padding:5px 9px;border-radius:18px;background:#246fd0;color:#fff;border:2px solid #fff;box-shadow:0 0 0 4px #246fd025;font-size:11px;white-space:nowrap}
+.amap-viewport .landmark-marker.is-compact{min-height:40px;width:auto;max-width:108px;gap:0;justify-content:flex-end}
+.landmark-marker.is-compact .landmark-model{display:none}.landmark-marker.is-compact .landmark-label{padding:3px 5px;max-width:108px;border:1px solid #b5c3ac}.landmark-marker.is-compact .landmark-name{font-size:10px}.landmark-marker.is-compact .landmark-day{display:none}.landmark-marker.is-compact::after{height:5px;width:5px;border-radius:50%}.landmark-marker.is-compact .landmark-endpoint{top:-18px}
+.stop-actions button[data-remove-stop]{color:#945236}
 .route-map{height:460px;cursor:grab}
 .route-map .amap-viewport,.route-map .amap-layers{cursor:grab}
 .route-map:active{cursor:grabbing}

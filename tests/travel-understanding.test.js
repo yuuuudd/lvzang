@@ -98,7 +98,7 @@ test('an impossible mandatory visit returns clarification and preserves the old 
   const first=await chatTravel(body('帮我按保存条件安排路线',savedProfile()),modelStub(catalogResponses({intent:'plan',reply:'按保存需求安排。'})));
   const before=JSON.stringify(first),stub=modelStub(catalogResponses({intent:'plan',reply:'每日改为一小时。',constraints:{hours:1}}));
   const result=await chatTravel(body('每天改为1小时',first.profile,{currentPlan:first,previous:first.input}),stub);
-  assert.equal(stub.calls.length,4);assert.equal(result.kind,'clarify');assert.equal(result.profile.fields.dailyHours.value,1);assert.equal(result.input,undefined);assert.equal(result.stops,undefined);
+  assert.equal(stub.calls.length,1,'a duration-only revision reflows saved stops without asking the model to choose replacements');assert.equal(result.kind,'clarify');assert.equal(result.profile.fields.dailyHours.value,1);assert.equal(result.input,undefined);assert.equal(result.stops,undefined);
   assert.match(result.assistantReply,/必去.*无法|无法.*必去/);assert.match(result.assistantReply,/延长天数|减少必去/);assert.equal(JSON.stringify(first),before);
 });
 
@@ -239,7 +239,7 @@ test('two malformed responses fail with a specific reason without returning raw 
 test('a failed planning stage after two output attempts leaves original plan and profile untouched',async()=>{
   const profile=savedProfile(),currentPlan={city:'广州',title:'已保存路线',stops:[{id:'gz-museum',name:'广东省博物馆',minutes:75,transit:0,dayIndex:1}]},original=JSON.stringify({profile,currentPlan}),events=[];
   const stub=providerStub([{content:JSON.stringify({intent:'plan',reply:'每日改为6小时。',profilePatch:{dailyHours:6}})},{content:''},{content:'{"summary":"broken'}]);
-  await assert.rejects(()=>chatTravel(body('每天改为6小时',profile,{currentPlan}),{...stub,onProgress:event=>events.push(event)}),/资料分析 Agent.*JSON.*已重试一次/);
+  await assert.rejects(()=>chatTravel(body('每天改为6小时，重新安排路线',profile,{currentPlan}),{...stub,onProgress:event=>events.push(event)}),/资料分析 Agent.*JSON.*已重试一次/);
   assert.equal(stub.calls.length,3);assert.equal(JSON.stringify({profile,currentPlan}),original);assert.ok(events.some(event=>event.type==='profile'&&event.profile.fields.dailyHours.value===6));
 });
 

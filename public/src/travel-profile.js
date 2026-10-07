@@ -1,7 +1,9 @@
 import {places} from './travel-catalog.js';
 
 // User requirements are independent of the bounded chat history and the last plan.
-const fieldNames=['destination','dayCount','dailyHours','startTime','companions','budget','interests','pace','requiredPlaces','excludedPlaces'];
+const legacyFieldNames=['destination','dayCount','dailyHours','startTime','companions','budget','interests','pace','requiredPlaces','excludedPlaces'];
+const detailFieldNames=['crowdPreference','diet','stayArea','startArea','transport','travelDates'];
+const fieldNames=[...legacyFieldNames,...detailFieldNames];
 const statuses=['confirmed','tentative','missing'];
 const own=(value,key)=>Object.prototype.hasOwnProperty.call(value,key);
 const object=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
@@ -35,6 +37,20 @@ function normalizeValue(field,value){
       const matched=placeKey(name),key=places.some(place=>place.id===matched)?matched:name;
       if(seen.has(key))return false;seen.add(key);return true;
     });
+  }
+  if(field==='crowdPreference'){if(!['popular','niche','mixed'].includes(value))throw new Error('热门与小众偏好格式无效');return value;}
+  if(field==='transport'){if(!['walk','transit','drive','taxi','bike','mixed'].includes(value))throw new Error('出行方式格式无效');return value;}
+  if(['stayArea','startArea'].includes(field)){const result=boundedText(value,80,'住宿或出发区域');if(!result)throw new Error('住宿或出发区域不能为空');return result;}
+  if(field==='diet'){
+    if(!object(value)||Object.keys(value).some(key=>!['preferences','restrictions'].includes(key)))throw new Error('饮食偏好格式无效');
+    return {preferences:names(value.preferences??[],8),restrictions:value.restrictions==null?null:names(value.restrictions,8)};
+  }
+  if(field==='travelDates'){
+    if(!object(value)||Object.keys(value).some(key=>!['start','end'].includes(key)))throw new Error('旅行日期格式无效');
+    const result={start:null,end:null,...value};
+    for(const date of Object.values(result))if(date!==null&&(typeof date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(date)||Number.isNaN(Date.parse(date))||new Date(date).toISOString().slice(0,10)!==date))throw new Error('请填写有效的旅行日期');
+    if(result.end!==null&&(result.start===null||result.end<result.start))throw new Error('结束日期不能早于出发日期');
+    return result;
   }
   if(field==='companions'){
     if(!object(value))throw new Error('同行情况格式无效');
@@ -78,9 +94,9 @@ export function normalizeTravelProfile(value){
   for(const key of Object.keys(value))if(!['version','revision','fields','followUps'].includes(key))throw new Error('旅行需求档案字段无效');
   for(const field of Object.keys(value.fields))if(!fieldNames.includes(field))throw new Error('旅行需求档案字段无效');
   const result=emptyTravelProfile();result.revision=value.revision;
-  for(const field of fieldNames){if(!own(value.fields,field))throw new Error('旅行需求档案缺少字段');result.fields[field]=normalizeField(field,value.fields[field]);}
+  for(const field of fieldNames){if(!own(value.fields,field)){if(legacyFieldNames.includes(field))throw new Error('旅行需求档案缺少字段');continue;}result.fields[field]=normalizeField(field,value.fields[field]);}
   const followUps=value.followUps??[];
-  if(!Array.isArray(followUps)||followUps.length>2)throw new Error('旅行追问格式无效');
+  if(!Array.isArray(followUps)||followUps.length>3)throw new Error('旅行追问格式无效');
   result.followUps=followUps.map(item=>{
     if(!object(item)||!fieldNames.includes(item.field))throw new Error('旅行追问字段无效');
     const question=boundedText(item.question,240,'旅行追问');if(!question)throw new Error('旅行追问不能为空');
@@ -128,8 +144,36 @@ function parsePlaceChanges(text,protectedNames=[]){
   }
   return {required:[...new Set(required)],excluded:[...new Set(excluded)]};
 }
-function parsedText(text,previous){
+function parsedDetails(text,previous){
   const result={},pending=new Set(previous.followUps.map(item=>item.field));
+  if(/(?:热门|大众).{0,10}(?:小众|冷门).{0,8}(?:都|兼顾|结合|一起)|(?:小众|冷门).{0,10}(?:热门|大众).{0,8}(?:都|兼顾|结合|一起)|大众小众都可以/.test(text))result.crowdPreference='mixed';
+  else if(/喜欢|偏好|想要|更想|希望|想去/.test(text)||pending.has('crowdPreference')){
+    if(/小众|冷门|人少|避开人群/.test(text))result.crowdPreference='niche';else if(/热门|大众|经典地标/.test(text))result.crowdPreference='popular';else if(pending.has('crowdPreference')&&/都可以|无所谓|不挑|随意/.test(text))result.crowdPreference='mixed';
+  }
+  const preferences=['粤菜','川菜','湘菜','清淡','辣味','甜食','素食','地方小吃','咖啡','海鲜'].filter(item=>new RegExp(`(?<!不)(?:喜欢|爱吃|偏好|想吃|口味)[^，。；,;]{0,15}${item}`).test(text));
+  const restrictions=[];
+  for(const match of text.matchAll(/(?:不吃|不能吃|忌口(?:是|为)?|忌(?!口)|对)([^，。；,;\n]{1,24}?)(?:过敏|$|(?=[，。；,;\n]))/g)){
+    const value=match[1].trim().replace(/(?:的东西|食品|食物)$/,'');if(value&&!/太累|走路|旅行|预算/.test(value))restrictions.push(value);
+  }
+  if(/不吃辣|不能吃辣/.test(text)&&!restrictions.includes('辣'))restrictions.push('辣');
+  if(preferences.length||restrictions.length)result.diet={...(preferences.length?{preferences}:{}),...(restrictions.length?{restrictions:[...new Set([...(previous.fields.diet?.value?.restrictions??[]),...restrictions])]}:{})};
+  if(/(?:没有|没|无|不)(?:饮食)?(?:禁忌|忌口)|取消(?:饮食)?(?:禁忌|忌口)/.test(text))result.diet={...(result.diet??{}),restrictions:[]};
+  const stay=text.match(/(?:住在|住宿(?:区域|地点)?(?:是|为|选|改为|改成)|酒店(?:在|位于))\s*([^，。；,;\n]{1,80})/);
+  if(stay)result.stayArea=stay[1].trim();
+  const start=text.match(/(?:从|出发区域(?:是|为|改为)?|出发地点(?:是|为|改为)?)\s*([^，。；,;\n]{2,80}?)(?:出发|开始游玩)(?=[，。；,;\n]|$)/);
+  if(start&&!/^(?:上午|下午|早上|晚上)?(?:\d|[一二两三四五六七八九十]).*(?:点|小时|:\d{2})$/.test(start[1]))result.startArea=start[1].trim();
+  if(/(?:住宿|酒店|住哪).{0,8}(?:未定|没定|不确定|没想好)/.test(text))result.stayArea='未定';
+  if(/(?:出发地点|出发区域).{0,8}(?:未定|没定|不确定)/.test(text))result.startArea='未定';
+  const mixedTransport=text.split(/[，。；,;\n]/).some(clause=>/结合|混合|配合|搭配|加|和|及|与|或|\+|＋/.test(clause)&&[/步行/,/地铁|公交|公共交通/,/自驾|开车/,/打车|出租车|网约车/,/骑车|骑行/].filter(pattern=>pattern.test(clause)).length>=2);
+  const mode=mixedTransport?'mixed':/(?:自驾|开车)(?:为主|出行|游玩)?/.test(text)?'drive':/(?:打车|出租车|网约车)(?:为主|出行)?/.test(text)?'taxi':/(?:公共交通|公交地铁|地铁)(?:为主|出行)?/.test(text)?'transit':/(?:骑行|骑车)(?:为主|出行)?/.test(text)?'bike':/(?:全程|主要|优先)步行|步行(?:为主|游玩|出行)/.test(text)?'walk':/(?:交通|出行方式).{0,8}(?:都可以|混合|灵活|不限)/.test(text)?'mixed':null;
+  if(mode&&!/(?:不|不能|不要|不想)(?:自驾|开车|打车|骑车|骑行|步行|公共交通|地铁)/.test(text))result.transport=mode;
+  const dates=[...text.matchAll(/(?<!\d)(\d{4})[-/年](\d{1,2})[-/月](\d{1,2})(?:日)?(?!\d)/g)].map(match=>`${match[1]}-${match[2].padStart(2,'0')}-${match[3].padStart(2,'0')}`);
+  if(dates.length&&/日期|出发|到|至|旅行|旅游/.test(text))result.travelDates={start:dates[0],...(dates[1]?{end:dates[1]}:{})};
+  if(/(?:日期|哪天|出发日).{0,8}(?:未定|没定|不确定|没想好)/.test(text))result.travelDates={start:null,end:null};
+  return result;
+}
+function parsedText(text,previous){
+  const result=parsedDetails(text,previous),pending=new Set(previous.followUps.map(item=>item.field));
   const cityPattern='广州|苏州|杭州|北京|上海|成都|重庆|深圳|西安|南京|青岛|厦门|武汉|长沙|珠海|云南|日本|巴黎';
   const explicitCity=text.match(new RegExp(`(?:换成|改成|改为|目的地(?:是|为)?|(?<!不)(?<!不想)(?<!不要)(?<!必)(?<!要)去|到)\\s*(${cityPattern})(?:市)?(?=[\\s，。；,;一二两三四五六七八九十\\d]|半天|旅游|旅行|玩|游|$)`));
   const beginningCity=text.match(new RegExp(`^(?:帮我(?:安排|规划)?|安排|规划|计划|想去|去)?\\s*(${cityPattern})(?:市)?(?=[\\s，。；,;一二两三四五六七八九十\\d]|半天|旅游|旅行|玩|游|$)`));
@@ -138,8 +182,9 @@ function parsedText(text,previous){
   else if(directional){const destination=directional[1].replace(/^(?:帮我|我们|我想|计划|准备)/,'');if(destination.length>=2&&!/^(?:方案|行程|路线|地点|计划|旅行|旅游|哪里|什么|博物馆|预算)$/.test(destination)&&!/^(?:[零一二两三四五六七八九十\d]+(?:天|日)|半天)(?:路线|行程|计划|方案|旅行|旅游)?$/.test(destination)&&!places.some(place=>[place.name,...place.aliases].includes(destination))&&!/必去|排除|不去/.test(text.slice(0,directional.index)))result.destination=destination;}
   else if(pending.has('destination')&&/^[\p{Script=Han}A-Za-z·]{2,20}(?:市)?$/u.test(text)&&!/^(?:不知道|你推荐|随便|先安排|先给方案|你先安排)$/.test(text))result.destination=text;
   const durationQuestion=/[？?]|吗|多久|多长/.test(text)&&!/(?:安排|规划|制定|改为|改成|改到|调整|只有|总共|我们.*(?:玩|旅行)|旅行.*天)/.test(text);
-  if(!durationQuestion){
-    const days=foundNumber(text,`(?<!每)${quantity}\\s*(?:天|日)(?!常)`);
+  if(!durationQuestion&&!/第\s*[一二两三四五六七八九十\d]+\s*天/.test(text)){
+    const durationText=text.replace(/\d{4}[-/年]\d{1,2}[-/月]\d{1,2}日?/g,'');
+    const days=foundNumber(durationText,`(?<!每)${quantity}\\s*(?:天|日)(?!常)`);
     if(days!==undefined)result.dayCount=days;
     const daily=foundNumber(text,`(?:每天|每日|一天)(?:大概|约|有|可用|能玩|玩|逛|安排|只玩|只有|能安排|最多)?\\s*${quantity}\\s*(?:个)?小时`);
     const hours=daily??foundNumber(text,`${quantity}\\s*(?:个)?小时`);
@@ -152,11 +197,10 @@ function parsedText(text,previous){
     const chineseClock=text.match(new RegExp(`(?:每天|每日|从|出发|开始|上午|下午|早上|晚上)\\s*${quantity}\\s*点(?:([一二三四五六七八九十\\d]+)分?|(半))?`));
     if(clock)result.startTime=`${clock[1].padStart(2,'0')}:${clock[2]}`;
     else if(chineseClock){let hour=chineseNumber(chineseClock[1]);if(/下午|晚上/.test(chineseClock[0])&&hour<12)hour+=12;result.startTime=`${String(hour).padStart(2,'0')}:${String(chineseClock[3]?30:chineseNumber(chineseClock[2]??'零')).padStart(2,'0')}`;}
-    else if(/(?:从|开始|出发|安排在|改到)\s*(?:上午|早上)/.test(text))result.startTime='09:00';
-    else if(/(?:从|开始|出发|安排在|改到)\s*下午/.test(text))result.startTime='13:00';
   }
-  const count=foundNumber(text,`(?:我们|一共|共|同行|总共|有)?\\s*${quantity}\\s*(?:个)?人(?!均)`)??foundNumber(text,`一家${quantity}口`);
+  let count=foundNumber(text,`(?:我们|一共|共|同行|总共|有)?\\s*${quantity}\\s*(?:个)?人(?!均)`)??foundNumber(text,`一家${quantity}口`);
   const adults=foundNumber(text,`${quantity}\\s*(?:位|个|名)?(?:成人|成年人|大人)`),children=foundNumber(text,`${quantity}\\s*(?:位|个|名)?(?:儿童|孩子|小孩|宝宝)`),seniors=foundNumber(text,`${quantity}\\s*(?:位|个|名)?(?:老人|长者|老年人)`);
+  if(count===undefined&&adults!==undefined&&children===undefined&&seniors===undefined&&!/其中|包括|包含|新增|增加|加上|再来|还有/.test(text))count=adults;
   const companionDescription=text.match(/(?:和|带|跟|陪|与)\s*(?:父母|爸妈|孩子|老人|朋友|家人|伴侣|女友|男友|同学|同事)/u)?.[0];
   if(count!==undefined||adults!==undefined||children!==undefined||seniors!==undefined||companionDescription){result.companions={};if(count!==undefined)result.companions.count=count;if(adults!==undefined)result.companions.adults=adults;if(children!==undefined)result.companions.children=children;if(seniors!==undefined)result.companions.seniors=seniors;if(companionDescription)result.companions.description=companionDescription;}
   if(/独自|一个人|自己一个人/.test(text))result.companions={...(result.companions??{}),count:1,description:'独自旅行'};
@@ -183,8 +227,8 @@ function parsedText(text,previous){
       if(included.length||excluded.length)result.budget.includes=(included.length?included:previous.fields.budget.value?.includes??[]).filter(item=>!excluded.includes(item));
     }
   }
-  if(/少走|轻松|慢游|慢慢|休闲|不要太累|不能久走|轮椅/.test(text))result.pace='easy';else if(/多走|徒步|紧凑|充实|暴走/.test(text))result.pace='active';else if(/正常节奏|普通节奏|正常走/.test(text))result.pace='normal';
-  const interests=['文化','建筑','室内','风景','拍照','园林','美食','手作'].filter(item=>new RegExp(`(?:喜欢|偏好|爱看|兴趣|想看|想体验)[^，。；,;]{0,20}${item}`).test(text));if(interests.length)result.interests=interests;
+  if(!/第\s*[一二两三四五六七八九十\d]+\s*天/.test(text)){if(/少走|轻松|慢游|慢慢|休闲|不要太累|不能久走|轮椅/.test(text))result.pace='easy';else if(/多走|徒步|紧凑|充实|暴走/.test(text))result.pace='active';else if(/正常节奏|普通节奏|正常走|节奏适中|适中(?:强度|节奏)/.test(text)||pending.has('pace')&&/^(?:正常|适中|一般)$/.test(text))result.pace='normal';}
+  const interests=['文化','建筑','室内','风景','拍照','园林','美食','手作','历史','自然','购物','夜景','亲子','美术','音乐','徒步','咖啡'].filter(item=>new RegExp(`(?:喜欢|偏好|爱看|兴趣|想看|想体验)[^，。；,;]{0,20}${item}`).test(text));if(interests.length)result.interests=interests;
   return result;
 }
 
@@ -198,7 +242,7 @@ export function updateTravelProfile(previous,{text='',patch={},destination,hours
     let value=proposal;
     if(object(proposal)&&own(proposal,'value')){if(!statuses.includes(proposal.status))throw new Error('旅行需求修改状态无效');status=proposal.status;value=proposal.value;}
     if(value===null){profile.fields[field]={value:null,status:'missing'};return;}
-    if(['budget','companions'].includes(field)&&object(value)){
+    if(['budget','companions','diet','travelDates'].includes(field)&&object(value)){
       const old=profile.fields[field].value;
       value={...(object(old)?old:{}),...value};
     }
@@ -213,7 +257,8 @@ export function updateTravelProfile(previous,{text='',patch={},destination,hours
   const explicit=parsedText(text,original);
   const durationQuestion=/[？?]|吗|多久|多长/.test(text)&&!/(?:安排|规划|制定|改为|改成|改到|调整|只有|总共|我们.*(?:玩|旅行)|旅行.*天)/.test(text);
   const safeProposal=(field,proposal)=>{
-    if(proposal===null)return proposal;
+    if(/第\s*[一二两三四五六七八九十\d]+\s*天/.test(text)&&['dayCount','dailyHours','startTime','pace'].includes(field))return undefined;
+    if(proposal===null){if(detailFieldNames.includes(field)&&!/取消|清空|删除|去掉|不设置|不限制/.test(text))return undefined;return proposal;}
     if(durationQuestion&&['dayCount','dailyHours','startTime'].includes(field))return undefined;
     const wrapped=object(proposal)&&own(proposal,'value'),proposalStatus=wrapped?proposal.status:'confirmed';
     if(wrapped){if(!statuses.includes(proposalStatus))throw new Error('旅行需求修改状态无效');proposal=proposal.value;if(proposal===null)return {value:null,status:'missing'};}
@@ -224,6 +269,18 @@ export function updateTravelProfile(previous,{text='',patch={},destination,hours
       for(const key of ['count','adults','children','seniors'])if(own(supported,key)&&own(proposal,key))safe[key]=proposal[key];
       if(typeof proposal.description==='string'&&proposal.description.trim()&&/同行|我们|父母|爸妈|朋友|伴侣|孩子|老人|家人|独自|一个人/.test(text))safe.description=proposal.description;
       return Object.keys(safe).length?{value:safe,status:proposalStatus}:undefined;
+    }
+    if(detailFieldNames.includes(field)){
+      const dietarySupport=object(proposal)&&Object.entries(proposal).every(([part,items])=>Array.isArray(items)&&items.length>0&&items.every(item=>{
+        if(typeof item!=='string'||!text.includes(item))return false;
+        return text.split(/[，。；,;\n]/).some(clause=>clause.includes(item)&&(part==='restrictions'?/不吃|不能吃|忌口|忌|过敏/.test(clause):/(?<!不)喜欢|爱吃|偏好|想吃|口味/.test(clause)));
+      }));
+      const supported=field==='diet'?dietarySupport:
+        ['stayArea','startArea'].includes(field)?typeof proposal==='string'&&text.includes(proposal):
+        field==='travelDates'?false:
+        field==='crowdPreference'?/热门|大众|小众|冷门|人少/.test(text):/交通|地铁|自驾|开车|打车|骑行|步行/.test(text);
+      // Explicit deterministic extraction above outranks this cautious model fallback.
+      return {value:proposal,status:supported?proposalStatus:'tentative'};
     }
     if(['dayCount','dailyHours','startTime','budget'].includes(field))return {value:proposal,status:'tentative'};
     if(['requiredPlaces','excludedPlaces'].includes(field)&&Array.isArray(proposal)){
@@ -239,7 +296,7 @@ export function updateTravelProfile(previous,{text='',patch={},destination,hours
   const proposedDestination=explicit.destination??(object(patch.destination)&&own(patch.destination,'value')?patch.destination.value:patch.destination);
   if(proposedDestination!==undefined&&proposedDestination!==null){
     const normalized=normalizeValue('destination',proposedDestination);
-    if(original.fields.destination.value&&normalized!==original.fields.destination.value){profile.fields.requiredPlaces={value:null,status:'missing'};profile.fields.excludedPlaces={value:null,status:'missing'};}
+    if(original.fields.destination.value&&normalized!==original.fields.destination.value){profile.fields.requiredPlaces={value:null,status:'missing'};profile.fields.excludedPlaces={value:null,status:'missing'};profile.fields.stayArea={value:null,status:'missing'};profile.fields.startArea={value:null,status:'missing'};}
   }
   for(const [field,value] of Object.entries(patch))if(!own(explicit,field)){const proposal=safeProposal(field,value);if(proposal!==undefined)apply(field,proposal);}
   for(const [field,value] of Object.entries(explicit))apply(field,value);
@@ -256,14 +313,14 @@ export function updateTravelProfile(previous,{text='',patch={},destination,hours
     if(placeChanges.required.length&&original.fields.excludedPlaces.value?.some(name=>placeChanges.required.some(next=>placeKey(next)===placeKey(name))))apply('excludedPlaces',[...excluded],'confirmed',true);
     if(placeChanges.excluded.length&&original.fields.requiredPlaces.value?.some(name=>placeChanges.excluded.some(next=>placeKey(next)===placeKey(name))))apply('requiredPlaces',[...required],'confirmed',true);
   }
-  if(/(?:没有|不要|取消|清空|去掉|删除)(?:全部|所有)?必去(?:地点|景点)?/.test(text))apply('requiredPlaces',[]);
-  if(/(?:没有|取消|清空|去掉|删除)(?:全部|所有)?(?:排除|避开)(?:地点|景点)?/.test(text))apply('excludedPlaces',[]);
+  if(/(?:没有|无|暂无|不要|取消|清空|去掉|删除)(?:全部|所有|特别)?必去(?:地点|景点)?/.test(text))apply('requiredPlaces',[]);
+  if(/(?:没有|无|暂无|取消|清空|去掉|删除)(?:全部|所有|要|想|特别)?(?:排除|避开)(?:地点|景点)?/.test(text))apply('excludedPlaces',[]);
   if(/清空预算|取消预算(?:限制)?|不限制预算|预算不限|不限预算/.test(text))apply('budget',{amount:null,currency:'CNY',scope:'unknown',period:'unknown',includes:[]});
   const allowDefaults=/先给(?:个|一个)?(?:方案|行程)|你先安排|先安排|按默认|先推荐|先给建议/.test(text);
   if(allowDefaults){
     if(profile.fields.dayCount.status==='missing')apply('dayCount',1,'tentative');
     if(profile.fields.dailyHours.status==='missing')apply('dailyHours',8,'tentative');
-    if(profile.fields.startTime.status==='missing')apply('startTime','09:00','tentative');
+    if(profile.fields.startTime.status==='missing')apply('startTime',/下午(?:出发|开始|游玩)|(?:从|开始|出发|安排在|改到)\s*下午/.test(text)?'13:00':/晚上(?:出发|开始|游玩)|(?:从|开始|出发|安排在|改到)\s*晚上/.test(text)?'18:00':'09:00','tentative');
   }
   const changes=fieldNames.filter(field=>!same(original.fields[field],profile.fields[field]));
   if(changes.length)profile.revision=original.revision+1;
@@ -289,7 +346,7 @@ export function applyTravelSettings(previous,settings){
   return {profile:normalizeTravelProfile(profile),changed:changes.length>0,changes};
 }
 
-export function travelFollowUps(value,{allowDefaults=false}={}){
+export function travelFollowUps(value,{allowDefaults=false,detailed=false}={}){
   const profile=normalizeTravelProfile(value),fields=profile.fields,result=[];
   if(fields.destination.status==='missing'||(!allowDefaults&&fields.destination.status==='tentative'))result.push({field:'destination',question:'你想去哪个城市？也可以说一个喜欢的文化主题。'});
   if(fields.dayCount.status!=='confirmed'&&!allowDefaults)result.push({field:'dayCount',question:'这次准备玩几天？如果只安排半天或几小时，也可以直接告诉我。'});
@@ -304,7 +361,11 @@ export function travelFollowUps(value,{allowDefaults=false}={}){
   if(result.length<2&&!allowDefaults&&budget?.scope==='group'&&budget.amount!==null&&companions?.count==null)result.push({field:'companions',question:'这笔全团预算供几个人使用？不知道人数也可以先保留全团上限。'});
   // Individual needs matter more than inferred ages; ask only when an easy group trip hints at them.
   if(!result.length&&!allowDefaults&&fields.pace.value==='easy'&&companions?.description&&companions.count==null)result.push({field:'companions',question:'同行几个人，有没有需要特别减少步行或照顾的需求？也可以让我先给一份轻松方案。'});
-  return result.slice(0,2);
+  if(detailed&&!allowDefaults){
+    const details=[['companions','这次和谁同行、几个人？有没有需要照顾的步行或休息需求？'],['crowdPreference','更偏向经典热门景点、小众人少的地方，还是两种都要？'],['interests','这次最想体验什么：文化建筑、自然风景、美食、购物，或其他兴趣？'],['requiredPlaces','有没有特别想去、一定要保留的地方？没有必去地点也可以直接说。'],['excludedPlaces','有没有不想去、希望避开的地方？没有排除地点也可以直接说。'],['budget','旅行预算大概多少？请说明人均或全团、全程或每天；也可以不设预算上限。'],['pace','希望轻松少走、适中安排，还是紧凑多玩？'],['diet',fields.diet.value?.restrictions===null?'口味已记下。还有什么饮食忌口或过敏吗？没有忌口也可以直接说。':'吃东西有什么偏好和禁忌？没有忌口也可以直接说。'],['stayArea','大概住在哪个区域？还没订住宿也可以说未定。'],['startArea','每天从哪里出发？可以填酒店区域、车站或大致位置。'],['transport','主要步行、公共交通、自驾、打车还是混合出行？'],['travelDates','预计哪天出发、哪天结束？日期未定可以先留空。']];
+    for(const [field,question] of details){if(result.length>=3)break;if((fields[field].status!=='confirmed'||field==='diet'&&fields.diet.value?.restrictions===null)&&!result.some(item=>item.field===field))result.push({field,question});}
+  }
+  return result.slice(0,detailed?3:2);
 }
 
 function budgetText(record){
@@ -316,12 +377,12 @@ function budgetText(record){
 export function travelProfileInput(value,baseInput={}){
   const profile=normalizeTravelProfile(value),f=profile.fields,destination=f.destination.value??baseInput.destination??'';
   const dailyHours=f.dailyHours.value??baseInput.dailyHours??baseInput.hours??8;
-  const input={...baseInput,profile,destination,dayCount:f.dayCount.value??1,dailyHours,hours:dailyHours,startTime:f.startTime.value??baseInput.startTime??'09:00',companions:f.companions.value,interests:f.interests.value??baseInput.interests??[],easy:f.pace.value==='easy'?true:f.pace.value?false:Boolean(baseInput.easy),budget:budgetText(f.budget),placeConstraints:{city:destination,required:f.requiredPlaces.value??[],excluded:f.excludedPlaces.value??[]}};
+  const input={...baseInput,profile,destination,dayCount:f.dayCount.value??1,dailyHours,hours:dailyHours,startTime:f.startTime.value??baseInput.startTime??'09:00',companions:f.companions.value,interests:f.interests.value??baseInput.interests??[],easy:f.pace.value==='easy'?true:f.pace.value?false:Boolean(baseInput.easy),budget:budgetText(f.budget),placeConstraints:{city:destination,required:f.requiredPlaces.value??[],excluded:f.excludedPlaces.value??[]},crowdPreference:f.crowdPreference.value,diet:f.diet.value,stayArea:f.stayArea.value,startArea:f.startArea.value,transport:f.transport.value,travelDates:f.travelDates.value};
   return input;
 }
 export function travelProfileSummary(value){
   const profile=normalizeTravelProfile(value),f=profile.fields;
-  const formatted={destination:f.destination.value,dayCount:f.dayCount.value==null?null:`${f.dayCount.value} 天`,dailyHours:f.dailyHours.value==null?null:`每天 ${f.dailyHours.value} 小时`,startTime:f.startTime.value,companions:f.companions.value?`${f.companions.value.count==null?'人数待确认':`${f.companions.value.count} 人`}${f.companions.value.description?` · ${f.companions.value.description}`:''}`:null,budget:budgetText(f.budget)||null,interests:f.interests.value?.join('、'),pace:{easy:'轻松慢游',normal:'正常节奏',active:'充实紧凑'}[f.pace.value],requiredPlaces:f.requiredPlaces.value?.join('、'),excludedPlaces:f.excludedPlaces.value?.join('、')};
-  const labels={destination:'目的地',dayCount:'旅行天数',dailyHours:'每日时间',startTime:'开始时间',companions:'同行情况',budget:'预算',interests:'兴趣',pace:'旅行节奏',requiredPlaces:'必去',excludedPlaces:'避开'};
+  const formatted={destination:f.destination.value,dayCount:f.dayCount.value==null?null:`${f.dayCount.value} 天`,dailyHours:f.dailyHours.value==null?null:`每天 ${f.dailyHours.value} 小时`,startTime:f.startTime.value,companions:f.companions.value?`${f.companions.value.count==null?'人数待确认':`${f.companions.value.count} 人`}${f.companions.value.description?` · ${f.companions.value.description}`:''}`:null,budget:budgetText(f.budget)||null,interests:f.interests.value?.join('、'),pace:{easy:'轻松慢游',normal:'正常节奏',active:'充实紧凑'}[f.pace.value],requiredPlaces:f.requiredPlaces.value?.join('、'),excludedPlaces:f.excludedPlaces.value?.join('、'),crowdPreference:{popular:'经典热门',niche:'小众人少',mixed:'热门与小众结合'}[f.crowdPreference.value],diet:f.diet.value?`口味：${f.diet.value.preferences.join('、')||'未限定'}；忌口：${(f.diet.value.restrictions===null?'未记录忌口':f.diet.value.restrictions.join('、')||'无')}`:null,stayArea:f.stayArea.value,startArea:f.startArea.value,transport:{walk:'步行为主',transit:'公共交通',drive:'自驾',taxi:'打车为主',bike:'骑行',mixed:'灵活混合'}[f.transport.value],travelDates:f.travelDates.value?(f.travelDates.value.start?`${f.travelDates.value.start}${f.travelDates.value.end?` 至 ${f.travelDates.value.end}`:''}`:'日期未定'):null};
+  const labels={destination:'目的地',dayCount:'旅行天数',dailyHours:'每日时间',startTime:'开始时间',companions:'同行情况',budget:'预算',interests:'兴趣',pace:'旅行节奏',requiredPlaces:'必去',excludedPlaces:'避开',crowdPreference:'热门 / 小众',diet:'饮食偏好',stayArea:'住宿区域',startArea:'出发区域',transport:'出行方式',travelDates:'旅行日期'};
   return fieldNames.map(field=>({label:labels[field],value:formatted[field]||(['requiredPlaces','excludedPlaces','interests'].includes(field)&&f[field].status==='confirmed'?'暂无':'待补充'),status:f[field].status}));
 }

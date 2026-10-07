@@ -29,8 +29,8 @@ export function createPacedQuery({
     draining = false;
   }
 
-  return start => new Promise((resolve, reject) => {
-    pending.push({start, resolve, reject});
+  return (start,{priority=false}={}) => new Promise((resolve, reject) => {
+    pending[priority?'unshift':'push']({start, resolve, reject});
     if (!draining) drain();
   });
 }

@@ -1,6 +1,7 @@
 import {byId,places} from './travel-catalog.js';
 import {emptyTravelProfile,normalizeTravelProfile} from './travel-profile.js';
 import {accountInfo,storageKey} from './account-client.js';
+import {isSuggestedItineraryId} from './travel-itinerary-edit.js';
 const LEGACY_KEYS={state:'lvzang.v1',chat:'lvzang.chat.v1'};
 export function travelStorageKeys(){return {state:storageKey(LEGACY_KEYS.state),chat:storageKey(LEGACY_KEYS.chat)};}
 function sourceRecord(storage,name){
@@ -43,7 +44,7 @@ export function readState(storage){
     if(!string(result.title,60))throw new Error();
     if(result.planningReset!==undefined&&typeof result.planningReset!=='boolean')throw new Error();
     const p=result.plan;
-    const stop=s=>s&&(byId(s.id)?webLink(s.source)&&s.source:s.kind==='suggested'&&/^suggested-(?:[1-9]|1[0-9]|2[0-8])$/.test(s.id)&&string(s.name,80)&&s.name.trim()&&string(s.city,40)&&s.city===p.city&&s.source===''&&s.coords===null&&Number.isFinite(s.minutes)&&s.minutes>=10&&s.minutes<=240&&Number.isFinite(s.transit)&&s.transit>=0&&Number.isFinite(s.estimatedStart)&&s.estimatedStart>=0&&string(s.story,240)&&string(s.task,160));
+    const stop=s=>s&&(byId(s.id)?webLink(s.source)&&s.source:s.kind==='suggested'&&isSuggestedItineraryId(s.id,p.city)&&string(s.name,80)&&s.name.trim()&&string(s.city,40)&&s.city===p.city&&s.source===''&&s.coords===null&&Number.isFinite(s.minutes)&&s.minutes>=10&&s.minutes<=240&&Number.isFinite(s.transit)&&s.transit>=0&&Number.isFinite(s.estimatedStart)&&s.estimatedStart>=0&&string(s.story,240)&&string(s.task,160));
     if(p&&(!Array.isArray(p.stops)||!p.stops.every(stop)||!Array.isArray(p.assumptions)||!Array.isArray(p.warnings)||!Array.isArray(p.trace)||!p.trace.every(t=>t&&string(t.role,80)&&string(t.detail,1000))||!p.analysis||!Array.isArray(p.analysis.findings)||!p.analysis.findings.every(f=>f&&string(f.title,80)&&string(f.text,6000))||!Array.isArray(p.analysis.places)||!p.analysis.places.every(a=>a&&string(a.name,80)&&Array.isArray(a.evidence)&&a.evidence.every(e=>e&&string(e.title,80)&&webLink(e.url??'')))||!p.input||!string(p.input.destination,40)))throw new Error();
     const named=p?.input?.placeConstraints;
     const placeNames=v=>Array.isArray(v)&&v.length<=12&&v.every(n=>string(n,80)&&n.trim());

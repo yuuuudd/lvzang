@@ -1,0 +1,7 @@
+.chat-scroll{min-height:0;overscroll-behavior:contain}.chat-heading,.composer{flex:none}
+@media(min-width:768px){.workspace{min-height:0}.requirements-panel{max-height:min(28dvh,280px)}.chat-scroll{flex:1 1 0}}
+.travel-guide-overview{margin:8px 0 14px;font-size:12px;line-height:1.8;color:var(--muted)}.travel-guide-overview:empty{display:none}
+.stop-guide{margin:12px 0;font-size:12px;line-height:1.85;overflow-wrap:anywhere}.stop-guide h4{font-size:12px;margin:12px 0 3px;color:var(--ink)}.stop-guide p{margin:4px 0}.stop-guide ul{margin:5px 0;padding-left:17px}.ask-stop-guide{display:block;font-size:11px;margin-top:10px;text-align:left;color:var(--green)}
+.research-sources{white-space:normal;margin-top:10px;font-size:11px;line-height:1.65}.research-sources summary{cursor:pointer;color:var(--green)}.research-sources p{margin-top:7px}.research-sources a{text-decoration:underline;text-underline-offset:3px;overflow-wrap:anywhere}.research-sources small{display:inline;color:var(--muted)}
+.return-to-chat{position:fixed;right:14px;bottom:14px;z-index:35;min-height:44px;max-width:220px;border:1px solid #d2dcbe;border-radius:24px;padding:10px 16px;background:var(--accent);color:var(--ink);box-shadow:0 4px 16px #21302b22;font-size:13px}.return-to-chat[hidden]{display:none}
+@media(max-width:767px){.chat-scroll{max-height:460px;min-height:200px}.composer{position:relative}.requirements-panel{max-height:310px}.ask-stop-guide{min-height:44px}}

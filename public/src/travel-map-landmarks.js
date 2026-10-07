@@ -1,4 +1,5 @@
 import {makeSouvenir} from './souvenir-mesh.js';
+import {getExplorationLandmark} from './travel-map-exploration.js';
 
 // Miniature architecture only. The map controller supplies verified POI positions.
 // A static orthographic triangle renderer avoids a WebGL context for every marker.
@@ -120,10 +121,24 @@ function youthPalace(){
   shape.box(0,2,19,36,1,5,palette.sand);return shape.triangles;
 }
 
+function commercial(){
+  // A shared shopping-place icon, not a reconstruction of any individual mall.
+  const shape=builder();shape.box(0,0,0,68,2,46,palette.stone);
+  shape.box(0,2,0,57,13,34,palette.sand);shape.box(0,15,0,58,2,35,palette.silver);
+  shape.box(-17,17,-7,21,11,20,palette.glass);shape.box(18,17,-5,18,8,23,palette.stone);
+  shape.box(0,2,17.3,49,10,.7,palette.glass);
+  for(const x of [-22,-11,0,11,22])shape.box(x,2,17.8,1.1,11,.8,palette.silver);
+  shape.box(0,3,21,18,1,6,palette.stone);shape.box(-11,17,8,12,.7,8,palette.green);
+  shape.box(20,25,-4,16,1,21,palette.red);shape.box(-17,28,-7,22,1,21,palette.silver);
+  return shape.triangles;
+}
+
 function genericPlace(){const shape=builder();shape.box(0,0,0,31,3,26,palette.stone);shape.rod([0,3,0],[0,22,0],2,palette.green,10);shape.pebble(0,0,18,15,15,palette.green);return shape.triangles;}
 function kindFor(stop){
   if(['gz-museum','gz-tower','gz-square','gz-opera','gz-library','gz-ifc','gz-ctf','gz-youth-palace'].includes(stop.id))return stop.id;
   if(stop.city==='广州'){const name=String(stop.name||'');if(/广东省?博物馆|粤博/.test(name))return 'gz-museum';if(/广州塔|小蛮腰/.test(name))return 'gz-tower';if(/花城广场/.test(name))return 'gz-square';if(/广州大剧院/.test(name))return 'gz-opera';if(/广州图书馆/.test(name))return 'gz-library';if(/广州国际金融中心|广州西塔/.test(name))return 'gz-ifc';if(/广州周大福金融中心|广州东塔/.test(name))return 'gz-ctf';if(/第?二少年宫/.test(name))return 'gz-youth-palace';}
+  const curated=getExplorationLandmark(stop.city,stop.id)||getExplorationLandmark(stop.city,stop.name);
+  if(curated?.category==='shopping')return 'commercial';
   return stop.id||'place';
 }
 function geometry(stop){
@@ -131,6 +146,7 @@ function geometry(stop){
   let triangles;
   if(key==='gz-museum')triangles=museum();else if(key==='gz-tower')triangles=tower();else if(key==='gz-square')triangles=square();else if(key==='gz-opera')triangles=opera();
   else if(key==='gz-library')triangles=library();else if(key==='gz-ifc')triangles=ifc();else if(key==='gz-ctf')triangles=ctf();else if(key==='gz-youth-palace')triangles=youthPalace();
+  else if(key==='commercial')triangles=commercial();
   else try{const model=makeSouvenir(key==='sz-shantang'?'sz-pingjiang':key);triangles=Array.from({length:model.mesh.length/9},(_,index)=>({points:Array.from({length:3},(_,vertex)=>Array.from(model.mesh.slice(index*9+vertex*3,index*9+vertex*3+3))),color:Array.from(model.colors.slice(index*9,index*9+3))}));}catch{if(!geometryCache.has('place'))geometryCache.set('place',genericPlace());return {kind:'place',triangles:geometryCache.get('place')};}
   geometryCache.set(key,triangles);return {kind:key,triangles};
 }
@@ -149,9 +165,9 @@ function render(canvas,triangles){
   return true;
 }
 
-export function createLandmarkMarker(stop,{index=0,dayIndex=null,isToday=true,isExample=false}={}){
+export function createLandmarkMarker(stop,{index=0,dayIndex=null,isToday=true,isExample=false,compact=false}={}){
   stop=stop||{};const name=String(stop.name||'旅行地点').slice(0,120),exploration=stop.kind==='exploration',shortNames={'gz-library':'广州图书馆','gz-ifc':'广州西塔','gz-ctf':'广州东塔','gz-youth-palace':'第二少年宫'},displayName=String(stop.shortName||(exploration&&shortNames[stop.id])||name).slice(0,120),number=Number.isInteger(index)&&index>=0?index+1:1,day=Number.isInteger(dayIndex)&&dayIndex>0?dayIndex:null;
-  const button=document.createElement('button');button.type='button';button.className=`map-marker landmark-marker ${exploration?'is-exploration':isToday?'is-today':'is-other-day'}`;button.dataset.stop=String(stop.id||'');
+  const button=document.createElement('button');button.type='button';button.className=`map-marker landmark-marker ${exploration?'is-exploration':isToday?'is-today':'is-other-day'}${compact?' is-compact':''}`;button.dataset.stop=String(stop.id||'');
   const model=document.createElement('span');model.className='landmark-model';const canvas=document.createElement('canvas');canvas.className='landmark-canvas';canvas.setAttribute('aria-hidden','true');model.append(canvas);
   const label=document.createElement('span');label.className='landmark-label';const title=document.createElement('span');title.className='landmark-name';title.textContent=displayName;const context=document.createElement('span');context.className='landmark-day';context.textContent=exploration?'探索 · 未入行程':isExample?'示例 · 未加入':'已在行程 · '+(day?`第${day}天`:`第${number}站`);label.append(title,context);
   const endpoint=document.createElement('span');endpoint.className='landmark-endpoint';endpoint.hidden=true;button.append(model,label,endpoint);

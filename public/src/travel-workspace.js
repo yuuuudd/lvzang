@@ -22,7 +22,7 @@ export function renderRequirements(profile,temporary=false){
   const labels={confirmed:'已确认',tentative:'暂定',missing:'待补充'};
   const entries=travelProfileSummary(profile).filter(item=>item.status!=='missing');
   $('requirements-summary').innerHTML=entries.map(({label,value,status})=>`<div class="requirement-row ${status}"><dt>${esc(label)}</dt><dd>${esc(value)}<small>${temporary?'待确认':labels[status]||'待补充'}</small></dd></div>`).join('')||'<div class="requirement-row missing"><dt>旅行条件</dt><dd>待补充</dd></div>';
-  const followUps=(profile?.followUps||[]).slice(0,2);$('follow-up-panel').hidden=!followUps.length;$('follow-up-list').innerHTML=followUps.map(({question})=>`<li>${esc(question)}</li>`).join('');
+  const followUps=(profile?.followUps||[]).slice(0,3);$('follow-up-panel').hidden=!followUps.length;$('follow-up-list').innerHTML=followUps.map(({question})=>`<li>${esc(question)}</li>`).join('');
   $('requirements-panel').classList.toggle('pending',temporary);
 }
 export function renderConstraints(input,previous=null,temporary=false,profile=null,day=null,awaitingInfo=false){
@@ -34,7 +34,7 @@ export function renderConstraints(input,previous=null,temporary=false,profile=nu
   $('budget-detail').textContent=(budget?.amount!=null?`${scope[budget.scope]||scope.unknown} · ${period[budget.period]||period.unknown} · 消费待核价`:awaitingInfo?'尚未提供预算':'预算上限 · 消费待核价')+(awaitingInfo?' · 尚待排入路线':'');
   $('time-previous').textContent=previous?`原来：${timeText(previous)}`:'可通过对话调整';
   $('budget-previous').textContent=previous?`原来：${budgetText(previous)}`:'可通过对话调整';
-  const paceLabel={easy:'轻松少走',normal:'适中',active:'紧凑多走'}[profile?.fields?.pace?.value]||(awaitingInfo?'节奏待补充':input.easy?'轻松少走':'适中');
+  const paceLabel={easy:'轻松少走',normal:'适中',active:'紧凑多走'}[(!awaitingInfo&&day?.pace)||profile?.fields?.pace?.value]||(awaitingInfo?'节奏待补充':input.easy?'轻松少走':'适中');
   const labels=awaitingInfo?[paceLabel,...(profile?.fields?.interests?.value||[])]:[paceLabel,...input.interests,'纪念收藏'];
   $('preference-tags').innerHTML=[...new Set(labels)].map(t=>`<span>${esc(t)}</span>`).join('');
   const changedTime=previous&&(input.hours!==previous.hours||input.startTime!==previous.startTime),changedBudget=previous&&input.budget!==previous.budget,changedPrefs=previous&&(input.easy!==previous.easy||JSON.stringify(input.interests)!==JSON.stringify(previous.interests)||JSON.stringify(input.requiredIds)!==JSON.stringify(previous.requiredIds)||JSON.stringify(input.excludedIds)!==JSON.stringify(previous.excludedIds));
@@ -44,11 +44,11 @@ export function renderConstraints(input,previous=null,temporary=false,profile=nu
   const changes=[];if(changedTime)changes.push(['clock',`${esc(timeText(previous))} → ${esc(timeText(input))}`]);if(changedBudget)changes.push(['coins',`${esc(budgetText(previous))} → ${esc(budgetText(input))}`]);if(changedPrefs)changes.push(['heart',esc(labels.join(' · '))]);
   $('change-list').innerHTML=changes.length?changes.map(([name,text])=>`<p class="change-row">${icon(name)}<span>${text}${temporary?' <small>待确认</small>':''}</span></p>`).join(''):`<p class="fine">${previous?'已沿用时间、预算和偏好。':'本轮未调整行程，可以继续补充需求。'}</p>`;
 }
-const roles=['对话 Agent','资料 Agent','研判 Agent','路线 Agent','总控 Agent'];
-const displayRole={'对话 Agent':'DeepSeek 对话','资料 Agent':'资料 Agent','研判 Agent':'需求 Agent','路线 Agent':'路线 Agent','总控 Agent':'协调 Agent'};
+const roles=['对话 Agent','资料 Agent','研判 Agent','路线 Agent','总控 Agent','攻略顾问'];
+const displayRole={'对话 Agent':'DeepSeek 对话','资料 Agent':'资料 Agent','研判 Agent':'需求 Agent','路线 Agent':'路线 Agent','总控 Agent':'协调 Agent','攻略顾问':'游览攻略'};
 let phases=new Map(),settled=false;
 function drawPhases(){
-  $('agent-trace').innerHTML=roles.filter(role=>!settled||phases.has(role)).map(role=>{const i=roles.indexOf(role),stage=phases.get(role)||{status:'waiting',detail:i?'问答时无需执行此阶段':'准备接收需求'};return `<li class="agent-step ${stage.status}">${icon(['sparkle','book-open','note-pencil','path','check-circle'][i])}<div><strong>${displayRole[role]}</strong><p>${esc(stage.detail)}</p></div>${icon(stage.status==='complete'?'check-circle':stage.status==='working'?'circle-notch':stage.status==='error'?'x':'clock').replace('<img','<img class="phase-icon"')}</li>`;}).join('');
+  $('agent-trace').innerHTML=roles.filter(role=>!settled||phases.has(role)).map(role=>{const i=roles.indexOf(role),stage=phases.get(role)||{status:'waiting',detail:i?'问答时无需执行此阶段':'准备接收需求'};return `<li class="agent-step ${stage.status}">${icon(['sparkle','book-open','note-pencil','path','check-circle','book-open'][i])}<div><strong>${displayRole[role]}</strong><p>${esc(stage.detail)}</p></div>${icon(stage.status==='complete'?'check-circle':stage.status==='working'?'circle-notch':stage.status==='error'?'x':'clock').replace('<img','<img class="phase-icon"')}</li>`;}).join('');
 }
 export function startPhases(ai){phases=new Map();settled=false;$('trace-mode').textContent=ai?'真实 AI 阶段':'本地规则示范';drawPhases();}
 export function stageEvent(event){phases.set(event.role,event);drawPhases();canvasStatus(event.detail,event.status==='working');}

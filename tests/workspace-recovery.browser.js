@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import {chromium} from 'playwright';
 import {createApp} from '../server.js';
 let aborted=0,calls=0,started,arrived=new Promise(r=>started=r);
-const server=createApp({key:'test',fetchImpl:async(_url,options)=>{calls++;if(JSON.parse(options.body).messages[0].content.includes('DeepSeek 对话助手'))return Response.json({choices:[{message:{content:JSON.stringify({intent:'plan',destination:'广州',reply:'我将调整预算。'})}}]});started();return new Promise((resolve,reject)=>options.signal.addEventListener('abort',()=>{aborted++;reject(options.signal.reason);},{once:true}));}});
+// This cancellation fixture speaks the legacy two-call dialogue/planner protocol.
+// The default advisor HTTP protocol is covered separately in travel-advisor.test.js.
+const server=createApp({advisorEnabled:false,key:'test',fetchImpl:async(_url,options)=>{calls++;if(JSON.parse(options.body).messages[0].content.includes('DeepSeek 对话助手'))return Response.json({choices:[{message:{content:JSON.stringify({intent:'plan',destination:'广州',reply:'我将调整预算。'})}}]});started();return new Promise((resolve,reject)=>options.signal.addEventListener('abort',()=>{aborted++;reject(options.signal.reason);},{once:true}));}});
 await new Promise(r=>server.listen(0,'127.0.0.1',r));const browser=await chromium.launch({channel:'chrome',headless:true});
 try{
   const page=await browser.newPage();await page.goto(`http://127.0.0.1:${server.address().port}/travel.html`);

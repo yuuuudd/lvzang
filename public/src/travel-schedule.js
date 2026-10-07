@@ -8,7 +8,14 @@ function timeValue(value,label,max){if(typeof value!=='number'||!Number.isFinite
 
 export function buildDailyPlan(plan,value,{reflow=false}={}){
   if(!plan||typeof plan!=='object'||Array.isArray(plan))throw new Error('每日方案格式无效');
-  const profile=normalizeTravelProfile(value),input=travelProfileInput(profile,plan.input??{}),dayCount=input.dayCount,dailyMinutes=Math.round(input.dailyHours*60),pace=profile.fields.pace.value??(input.easy?'easy':'normal'),maxStops=pace==='easy'?2:pace==='active'?4:3;
+  const profile=normalizeTravelProfile(value),input=travelProfileInput(profile,plan.input??{}),dayCount=input.dayCount,dailyMinutes=Math.round(input.dailyHours*60),pace=profile.fields.pace.value??(input.easy?'easy':'normal');
+  const overrides=plan.dayOverrides??{};
+  if(!overrides||typeof overrides!=='object'||Array.isArray(overrides))throw new Error('单日设置格式无效');
+  for(const [key,value]of Object.entries(overrides)){
+    if(!/^[1-7]$/.test(key)||Number(key)>dayCount||!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).some(field=>!['hours','startTime','pace'].includes(field)))throw new Error('单日设置与旅行日期不一致');
+    if(value.hours!==undefined&&(!Number.isFinite(value.hours)||value.hours<1||value.hours>12)||value.startTime!==undefined&&!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value.startTime)||value.pace!==undefined&&!['easy','normal','active'].includes(value.pace))throw new Error('单日时间或强度格式无效');
+  }
+  const maxStopsForDay=day=>(overrides[day.dayIndex]?.pace??pace)==='easy'?2:(overrides[day.dayIndex]?.pace??pace)==='active'?4:3;
   const source=Array.isArray(plan.days)&&plan.days.length?plan.days.flatMap((day,index)=>{if(!day||!Array.isArray(day.stops))throw new Error('每日地点格式无效');return day.stops.map(stop=>({...stop,dayIndex:stop.dayIndex??day.dayIndex??index+1}));}):plan.stops;
   if(!Array.isArray(source)||source.length>28)throw new Error('每日方案最多安排 28 个停留点');
   const required=profile.fields.requiredPlaces.value??[],excluded=profile.fields.excludedPlaces.value??[];
@@ -29,16 +36,16 @@ export function buildDailyPlan(plan,value,{reflow=false}={}){
   const missing=required.filter(name=>!candidates.some(stop=>matches(stop,name)));
   if(missing.length)throw new Error(`必去地点“${missing.join('、')}”尚未安排，请补充这些地点或明确放宽必去要求`);
   const requiredStops=new Set(candidates.filter(stop=>required.some(name=>matches(stop,name))));
-  const days=Array.from({length:dayCount},(_,index)=>({dayIndex:index+1,title:`第 ${index+1} 天`,startTime:input.startTime,hours:input.dailyHours,stops:[],totalMinutes:0,freeMinutes:dailyMinutes}));
-  const clock=input.startTime.split(':').map(Number),startMinutes=clock[0]*60+clock[1];
-  if(startMinutes+dailyMinutes>24*60)throw new Error('每日可用时间会跨过午夜，请缩短当天时长或提前开始时间');
+  const days=Array.from({length:dayCount},(_,index)=>{const override=overrides[index+1]||{},hours=override.hours??input.dailyHours;return {dayIndex:index+1,title:`第 ${index+1} 天`,startTime:override.startTime??input.startTime,hours,stops:[],totalMinutes:0,freeMinutes:Math.round(hours*60),...(override.pace?{pace:override.pace}:{})};});
+  for(const day of days){const [hour,minute]=day.startTime.split(':').map(Number);if(hour*60+minute+Math.round(day.hours*60)>24*60)throw new Error(`第${day.dayIndex}天可用时间会跨过午夜，请缩短当天时长或提前开始时间`);}
   const skipped=[];
   const add=(day,stop)=>{
     const transit=day.stops.length?stop.transit:0;
-    if(day.stops.length>=maxStops||day.totalMinutes+transit+stop.minutes>dailyMinutes)return false;
+    if(day.stops.length>=maxStopsForDay(day)||day.totalMinutes+transit+stop.minutes>Math.round(day.hours*60))return false;
+    const [hour,minute]=day.startTime.split(':').map(Number),startMinutes=hour*60+minute;
     const estimatedStart=day.totalMinutes+transit;
     const item={...stop,dayIndex:day.dayIndex,transit,estimatedStart,clockStart:`${String(Math.floor((startMinutes+estimatedStart)/60)).padStart(2,'0')}:${String((startMinutes+estimatedStart)%60).padStart(2,'0')}`};
-    day.stops.push(item);day.totalMinutes+=transit+stop.minutes;day.freeMinutes=dailyMinutes-day.totalMinutes;return true;
+    day.stops.push(item);day.totalMinutes+=transit+stop.minutes;day.freeMinutes=Math.round(day.hours*60)-day.totalMinutes;return true;
   };
   // Allocate mandatory candidates first, preserving their relative order. Optional stops
   // use the remaining capacity; no mandatory point silently disappears due to a greedy prefix.
@@ -53,11 +60,11 @@ export function buildDailyPlan(plan,value,{reflow=false}={}){
   const order=new Map(candidates.map((stop,index)=>[stop,index]));
   for(const day of days){
     const allocated=day.stops.map(item=>({item,original:candidates.find(stop=>stop.name===item.name)})).sort((a,b)=>order.get(a.original)-order.get(b.original));
-    day.stops=[];day.totalMinutes=0;day.freeMinutes=dailyMinutes;
+    day.stops=[];day.totalMinutes=0;day.freeMinutes=Math.round(day.hours*60);
     for(let index=0;index<allocated.length;index++){
       const {original}=allocated[index],remaining=allocated.slice(index+1).map(entry=>entry.original).filter(stop=>requiredStops.has(stop));
       const reserve=remaining.reduce((sum,stop)=>sum+stop.minutes+stop.transit,0),cost=original.minutes+(day.stops.length?original.transit:0);
-      if(!requiredStops.has(original)&&(day.totalMinutes+cost+reserve>dailyMinutes||day.stops.length+1+remaining.length>maxStops)){skipped.push(original.name);continue;}
+      if(!requiredStops.has(original)&&(day.totalMinutes+cost+reserve>Math.round(day.hours*60)||day.stops.length+1+remaining.length>maxStopsForDay(day))){skipped.push(original.name);continue;}
       if(!add(day,original)){
         if(requiredStops.has(original))throw new Error(`第${day.dayIndex}天必去地点的转场与游览超过每日可用时间，请调整路线顺序或增加时间`);
         skipped.push(original.name);

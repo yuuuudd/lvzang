@@ -3,7 +3,10 @@ import {chromium} from 'playwright';
 import {createApp} from '../server.js';
 import {mkdir} from 'node:fs/promises';
 let calls=0;
-const server=createApp({key:'test',fetchImpl:async(_url,options)=>{
+// This regression fixture implements the legacy two-call city planning protocol.
+// Default advisor interviews, web tools and cited guides are covered separately by
+// travel-advisor.test.js, including the default HTTP server pipeline.
+const server=createApp({key:'test',advisorEnabled:false,fetchImpl:async(_url,options)=>{
   calls++;const payload=JSON.parse(options.body),data=JSON.parse(payload.messages.at(-1).content);let value;
   if(payload.messages[0].content.includes('DeepSeek 对话助手')){
     if(data.description.includes('预算包含')){assert.equal(data.currentPlan.city,'北京');assert.ok(payload.messages.some(t=>t.role==='user'&&t.content.includes('北京')));value={intent:'answer',reply:'你设置的300元是预算上限，门票、交通和餐饮还需要核价。'};}

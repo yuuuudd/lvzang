@@ -2,6 +2,10 @@ import {normalizeRequest,analyzeNotes,planFromCatalog} from './public/src/travel
 import {places} from './public/src/travel-catalog.js';
 import {emptyTravelProfile,normalizeTravelProfile,updateTravelProfile,applyTravelSettings,travelProfileInput,travelFollowUps} from './public/src/travel-profile.js';
 import {buildDailyPlan} from './public/src/travel-schedule.js';
+import {applyItineraryEdit,isSuggestedItineraryId,reconcileGuide} from './public/src/travel-itinerary-edit.js';
+import {detectTravelDayEdit,applyTravelDayEdit,reconcileDayOverrides} from './public/src/travel-day-edit.js';
+import {askTravelAdvisor,enrichTravelPlan,validateTravelGuide} from './travel-advisor.js';
+import {getExplorationLandmark} from './public/src/travel-map-exploration.js';
 
 function parseModelObject(content){
   const text=content.trim();let value;
@@ -49,7 +53,7 @@ async function ask(role,prompt,data,{key,model,fetchImpl=fetch,signal,maxTokens=
     if(retry)throw new Error(`${role}${failure}；已重试一次，原方案和需求仍保留，请稍后重试。`);
   }
 }
-function validIds(ids,city){if(!Array.isArray(ids)||ids.length<1||ids.length>5||ids.some(id=>typeof id!=='string'||!places.some(p=>p.id===id&&p.city===city)))throw new Error('Agent 返回了资料范围外的地点');return [...new Set(ids)];}
+function validIds(ids,city,catalog=places){if(!Array.isArray(ids)||ids.length<1||ids.length>(catalog===places?5:28)||ids.some(id=>typeof id!=='string'||!catalog.some(p=>p.id===id&&p.city===city)))throw new Error('Agent 返回了资料范围外的地点');return [...new Set(ids)];}
 const short=(v,n=400)=>typeof v==='string'?v.slice(0,n):'';
 function conversationContext(body){
   const history=body.history??[];
@@ -71,6 +75,7 @@ function localAnswer(description,input){
   return '当前是本地示范模式，没有调用大模型。可以安排广州、苏州和杭州的示范路线；要按你的问题进行开放问答或规划其他城市，请在「策划选项」切换为 AI Agent 协作。';
 }
 const personalDialoguePrompt='先判断本轮真正的意图：普通地点介绍、费用解释、产品使用等问题 intent=answer，直接回答，不修改需求或行程；明确安排路线或修改条件时 intent=plan；用户补充需求但仍缺关键条件时可 intent=clarify。profile 是已保存的需求，profile.followUps 是上轮追问，短回答要按追问字段理解。只有本轮用户明确表达才输出 profilePatch，不从攻略、示例、助手回复或建议中确认事实。遗漏字段表示沿用；null 表示明确清除。输出 {intent:"answer"|"plan"|"clarify",reply:string,destination?:string,profilePatch?:{destination?:string,dayCount?:number,dailyHours?:number,startTime?:string,companions?:{count?:number,description?:string,adults?:number,children?:number,seniors?:number},budget?:{amount?:number,currency?:"CNY",scope?:"per-person"|"group"|"unknown",period?:"trip"|"day"|"unknown",includes?:string[]},interests?:string[],pace?:"easy"|"normal"|"active",requiredPlaces?:string[],excludedPlaces?:string[]},followUp?:{field:string,question:string}}。dayCount 为1至7天，dailyHours 为1至12小时的每日游览时间，不将三天换成24小时或把地点参观时长当作每日时间。预算范围不清楚保持 unknown，不擅自猜人均、整团、每日或全程；同行人数未说清时留空。必去/排除地点只记录用户明确要求，取消或保留按最新要求处理。本轮自然语言明确指定目的地时以正文为准；manualDestination=true 且正文未指定城市时，selectedDestination 是用户明确选择，区分出发地与目的地。最多追问两个问题，优先目的地、天数和已提供预算的范围；用户要求先按假设起草时明确默认条件。支持任何城市，但营业、预约、费用、交通和无障碍未实时核实。预制纪念品仅覆盖三城；签到模拟；照片可另行定制；定制需求只在本机保存，没有付款或自动生产。';
+const advisorDialoguePrompt=`${personalDialoguePrompt}\n你要像旅行顾问一样逐轮了解用户：大众必打卡、小众探索还是混合，喜欢的玩法和吃什么，饮食忌口、同行人、住哪里/从哪里出发、交通方式及出游日期。每轮最多2至3个相关问题，已确认的信息不重复问。尚未具备需求时只做采访，不立即给固定地标路线；用户要求先出方案则按明确标注的暂定条件起草。profilePatch 还支持 crowdPreference:"popular"|"niche"|"mixed",diet:{preferences:string[],restrictions:string[]},stayArea:string,startArea:string,transport:"walk"|"transit"|"drive"|"taxi"|"bike"|"mixed",travelDates:{start:string|null,end:string|null}，日期为YYYY-MM-DD。不把自己推荐的餐饮和景点记录成用户偏好。回答吃什么、怎么玩或攻略细节时可使用实际联网工具，最终包含sourceIds:string[]；来源不可访问要直说。采访和基本条件提取不需要无意义搜索。startTime只允许24小时HH:mm，例如14:00；只有下午、上午等模糊时段时不要填startTime，需要时追问具体时间。intent为plan或clarify时reply最多120字，仅确认本轮需求，不输出逐站路线或时间表，后续独立步骤会依据来源整理。`;
 const profileValue=(profile,field)=>profile.fields[field]?.value;
 const namedKey=value=>String(value??'').trim().replace(/\s/g,'');
 function namedMatch(stop,name){
@@ -87,6 +92,7 @@ function groundedProfilePatch(decision,text,previous){
   if(supplied!=null&&(!supplied||typeof supplied!=='object'||Array.isArray(supplied)))throw new Error('需求档案修订格式无效');
   const pending=new Set((previous.followUps||[]).map(q=>q.field)),patch={};
   const cues={destination:/目的地|想去|去|到|换|改|旅游|旅行|游玩|安排|规划/,dayCount:/[\d一二两三四五六七]+\s*(?:天|日)|半天/,dailyHours:/小时|半天|每日|每天|可用时间/,startTime:/出发|开始|早上|上午|下午|晚上|\d[:：]\d/,companions:/同行|我们|我和|带|人|父母|老人|孩子|朋友|独自|一家|亲子/,budget:/预算|人均|每人|整团|全程|全团|总共|每天|每日|元|块|费用|省钱|花费|不限/,interests:/喜欢|兴趣|偏好|关注|想看|想吃|文化|建筑|园林|手作|美食|拍照|风景/,pace:/少走|轻松|慢|多走|徒步|体力|累|节奏|快/,requiredPlaces:/必去|必须|一定|保留|想去|改去|取消|删除|去掉|不要|不去/,excludedPlaces:/不去|不想去|避开|取消|删除|去掉|不要|保留|改去/};
+  Object.assign(cues,{crowdPreference:/大众|小众|热门|冷门|打卡|人少|游客|混合|都想|都可以/,diet:/吃|喝|忌口|过敏|口味|素食|清真|辣|海鲜|美食|早茶/,stayArea:/住|酒店|住宿|民宿|宾馆/,startArea:/出发|起点|机场|车站|酒店|从/,transport:/交通|地铁|公交|步行|打车|自驾|开车|骑行|骑车|出租|巴士|地铁|混合/,travelDates:/日期|出游|出发|月|号|周|\d{4}-\d{2}-\d{2}/});
   const c=decision.constraints;
   const legacy=c&&typeof c==='object'&&!Array.isArray(c)?{...(c.hours!==undefined?{dailyHours:c.hours}:{}),...(c.easy!==undefined?{pace:c.easy?'easy':'normal'}:{}),...(c.startTime!==undefined?{startTime:c.startTime}:{}),...(c.interests!==undefined?{interests:c.interests}:{}),...(c.requiredPlaces!==undefined?{requiredPlaces:c.requiredPlaces}:{}),...(c.excludedPlaces!==undefined?{excludedPlaces:c.excludedPlaces}:{})}:{};
   for(const [field,value]of Object.entries({...legacy,...(supplied||{})})){
@@ -98,6 +104,12 @@ function groundedProfilePatch(decision,text,previous){
       if(city!==null&&(typeof city!=='string'||!text.includes(city.trim().replace(/市$/,''))))continue;
     }
     if(field==='dailyHours'&&/[\d一二两三四五六七]+\s*(?:天|日)/.test(text)&&!/小时|半天|每日|每天/.test(text))continue;
+    if(field==='startTime'){
+      const time=typeof value==='object'&&value!==null?value.value:value;
+      // A vague period ("下午") is not a confirmed clock. Keep other valid facts
+      // and let the interview clarify it instead of rejecting the entire turn.
+      if(time!==null&&(typeof time!=='string'||!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time)))continue;
+    }
     patch[field]=value;
   }
   if(!Object.hasOwn(patch,'destination')&&typeof decision.destination==='string'&&text.includes(decision.destination.trim().replace(/市$/,'')))patch.destination=decision.destination;
@@ -121,9 +133,9 @@ function wholeTripTitle(value,input,fallback){
   if(input.dayCount>1&&/首日|首天|半日|半天|第[一二两三四五六七\d]+天/.test(title)||declared&&(number[declared[1]]??Number(declared[1]))!==input.dayCount)return `${input.destination}${input.dayCount}天定制行程`;
   return title;
 }
-function routeCanStay(body,profile,changes,text){return Boolean(body.currentPlan?.city===profileValue(profile,'destination')&&Array.isArray(body.currentPlan.stops)&&body.currentPlan.stops.length&&changes.every(f=>['budget','companions','startTime'].includes(f)||Object.hasOwn(body,'tripSettings')&&['dayCount','dailyHours','pace'].includes(f))&&!/重新(?:选|安排|推荐)|换(?:路线|景点)|另一条|换一条|更多地点/.test(text));}
+function routeCanStay(body,profile,changes,text){return Boolean(body.currentPlan?.city===profileValue(profile,'destination')&&Array.isArray(body.currentPlan.stops)&&changes.every(f=>['budget','companions','startTime','diet','dayCount','dailyHours','pace'].includes(f))&&!/重新(?:选|安排|推荐)|换(?:路线|景点)|另一条|换一条|更多地点/.test(text));}
 const catalogDistance=(a,b)=>Math.hypot((a.coords[0]-b.coords[0])*111,(a.coords[1]-b.coords[1])*111*Math.cos(a.coords[0]*Math.PI/180));
-const estimatedTransit=(previous,stop,input)=>previous?Math.max(10,Math.ceil(catalogDistance(previous,stop)/(input.easy?12:8)*60)+8):0;
+const estimatedTransit=(previous,stop,input)=>!previous?0:!Array.isArray(previous.coords)||!Array.isArray(stop.coords)?15:Math.max(10,Math.ceil(catalogDistance(previous,stop)/(input.easy?12:8)*60)+8);
 function suggestedCandidates(draft,city,input,profile,retain=false){
   let rows;
   if(Array.isArray(draft.days)){
@@ -134,10 +146,10 @@ function suggestedCandidates(draft,city,input,profile,retain=false){
   const stops=[];
   for(const p of rows){
     if(!p||typeof p.name!=='string'||!p.name.trim()||p.name.length>80||!Number.isFinite(p.minutes)||p.minutes<10||p.minutes>240||!Number.isFinite(p.transit??0)||(p.transit??0)<0||(p.transit??0)>180)throw new Error('路线 Agent 返回的地点或时间格式无效');
-    if(p.dayIndex!==undefined&&(!Number.isInteger(p.dayIndex)||p.dayIndex<1||p.dayIndex>profileValue(profile,'dayCount')))throw new Error('路线 Agent 返回的日期超出旅行天数');
+      if(p.dayIndex!==undefined&&(!Number.isInteger(p.dayIndex)||p.dayIndex<1||p.dayIndex>profileValue(profile,'dayCount')))throw new Error(`路线日期必须从1开始，dayIndex只能为1至${profileValue(profile,'dayCount')}的整数，首天为1、不能为0`);
     if(places.some(known=>known.city!==city&&[known.name,...known.aliases].map(namedKey).includes(namedKey(p.name))))throw new Error('路线 Agent 返回了其他城市的地标');
     if(stops.some(s=>namedKey(s.name)===namedKey(p.name)))continue;
-    const preservedId=retain&&/^suggested-(?:[1-9]|1\d|2[0-8])$/.test(p.id)?p.id:null;
+    const preservedId=retain&&isSuggestedItineraryId(p.id,city)?p.id:null;
     const stop={id:preservedId||`suggested-${stops.length+1}`,kind:'suggested',city,name:p.name.trim(),aliases:[],tags:input.interests,minutes:Math.round(p.minutes),transit:Math.round(p.transit??0),estimatedStart:0,story:short(p.story,240)||'按你的条件推荐，实际游览条件待确认。',task:short(p.task,160)||'记录这一站想留下的旅行记忆。',coords:null,source:'',availability:'开放时间、预约、费用与交通未核实',souvenir:'可用照片定制',evidence:[],reason:'模型知识建议，未进行实时检索',...(p.dayIndex!==undefined?{dayIndex:p.dayIndex}:{})};
     if((profileValue(profile,'excludedPlaces')||[]).some(name=>namedMatch(stop,name)))throw new Error(`建议路线包含排除地点“${p.name}”，请重新组织路线。`);
     // Canonical user names become aliases only after the candidate has matched them.
@@ -146,21 +158,66 @@ function suggestedCandidates(draft,city,input,profile,retain=false){
   }
   return stops;
 }
+const researchNameKey=value=>String(value??'').normalize('NFKC').replace(/[\s·•]/g,'').toLowerCase();
+function researchNameVariants(name){
+  const normalized=String(name??'').normalize('NFKC').trim();
+  // English alias annotations do not distinguish a branch. Chinese qualifiers
+  // such as “天环店” remain mandatory evidence and must never be stripped.
+  const annotated=normalized.match(/^(.+?)\s*\(([A-Za-z][A-Za-z0-9\s&.'’\-]*)\)$/);
+  return [...new Set([normalized,...(annotated&&!/\b(?:branch|store|shop|outlet|campus|terminal)\b/i.test(annotated[2])?[annotated[1].trim()]:[])])];
+}
+function researchedCandidates(draft,city,input,profile,research){
+  const rows=Array.isArray(draft.days)?draft.days.flatMap(day=>day.stops||[]):draft.stops||[];
+  const sources=(research?.sources||[]).filter(source=>['fetched','search-snippet'].includes(source.accessStatus));
+  if(!sources.length)throw new Error('当前未取得可引用的旅行资料，不能将模型猜测包装成已查到的路线');
+  return suggestedCandidates(draft,city,input,profile).map(stop=>{
+    const row=rows.find(candidate=>namedKey(candidate.name)===namedKey(stop.name));
+    if(!Array.isArray(row?.sourceIds)||!row.sourceIds.length||row.sourceIds.length>8)throw new Error(`“${stop.name}”缺少实际取得的来源`);
+    const cited=row.sourceIds.map(id=>sources.find(source=>source.id===id));
+    if(cited.some(source=>!source))throw new Error('路线引用了未取得的资料');
+    const variants=researchNameVariants(stop.name),known=places.find(place=>place.city===city&&variants.some(name=>namedMatch(place,name))),mapKnown=variants.map(name=>getExplorationLandmark(city,name)).find(Boolean),canonical=known||mapKnown;
+    const names=[...variants,...(canonical?[canonical.name,...canonical.aliases]:[])].map(researchNameKey).filter(name=>name.length>=2);
+    if(!cited.some(source=>names.some(name=>researchNameKey(source.title+' '+source.excerpt).includes(name))))throw new Error(`“${stop.name}”没有出现在所引用的资料中，请补充可靠出处`);
+    return {...stop,...(known?{...known,minutes:stop.minutes,transit:stop.transit,story:stop.story,task:stop.task,dayIndex:stop.dayIndex}:mapKnown?{id:mapKnown.id,name:mapKnown.name,aliases:mapKnown.aliases}:variants.length>1?{name:variants[1],aliases:[...new Set([...stop.aliases,...variants])]}:{}),sourceIds:[...new Set(row.sourceIds)],evidence:cited.map(source=>({title:source.title,url:source.url})),reason:'根据本轮实际取得的旅行资料与已确认偏好推荐；具体安排仍待临行确认'};
+  });
+}
+function guideConversationContext(guide){
+  if(!guide||typeof guide!=='object')return undefined;
+  return {summary:short(guide.summary,1000),researchStatus:short(guide.researchStatus,30),sources:Array.isArray(guide.sources)?guide.sources.slice(0,18).map(source=>({id:short(source.id,85),title:short(source.title,240),url:safeSource(source.url),accessStatus:short(source.accessStatus,30),fetchedAt:short(source.fetchedAt,40)})):[],days:Array.isArray(guide.days)?guide.days.slice(0,7).map(day=>({dayIndex:day.dayIndex,overview:short(day.overview,500),stops:Array.isArray(day.stops)?day.stops.slice(0,4).map(stop=>({stopId:short(stop.stopId,100),name:short(stop.name,80),howToPlay:short(stop.howToPlay,1000),food:Array.isArray(stop.food)?stop.food.slice(0,4).map(food=>({name:short(food.name,100),note:short(food.note,500)})):[],transport:short(stop.transport,500),reservation:short(stop.reservation,500),rainyAlternative:short(stop.rainyAlternative,500)})):[]})):[]};
+}
+function questionFacts(text){
+  const question=/[？?]|吗|怎么|什么|为什么|是否|多少|哪里|哪儿|几个人|几天|有啥|有哪些/;
+  return text.split(/[，。；,;\n]/).flatMap(raw=>{
+    const clause=raw.trim();if(!clause)return [];
+    if(!question.test(clause))return [clause];
+    // Speech input commonly omits commas: keep the declarative preference before
+    // “附近吃什么”, but never turn a hypothetical or the question itself into a fact.
+    const boundary=clause.search(/附近|周边|这里|那边|请问|(?:有|吃|喝|玩)?(?:什么|啥)|有哪些|哪里|哪儿|怎么|为什么|是否|多少|几个人|几天/);
+    const fact=boundary>0?clause.slice(0,boundary).trim():'';
+    return fact&&!question.test(fact)&&!/(?:如果|假如|要是|假设|例如|比如)/.test(fact)?[fact]:[];
+  }).join('，');
+}
+function savedPlanResearch(plan,fallback){
+  const from=record=>Array.isArray(record?.sources)?record.sources.slice(0,18):[];
+  return {sources:[...from(fallback),...from(plan?.research),...from(plan?.guide)],errors:Array.isArray(plan?.research?.errors)?plan.research.errors.slice(0,10):[]};
+}
 async function chatTravelWithProfile(body,options){
   const context=conversationContext(body),previous=context.profile,text=body.description.trim(),mode=body.mode==='ai'?'ai':'demo';
   const original=normalizeRequest({...body,description:'',hours:undefined}),emit=e=>options.onProgress?.(e),trace=[];
   const stage=(role,status,detail)=>{emit({type:'stage',role,status,detail});if(status==='complete')trace.push({role,status,detail});};
   stage('对话 Agent','working','正在结合已保存需求理解这句话');
   const settingsUpdate=Object.hasOwn(body,'tripSettings')?applyTravelSettings(previous,body.tripSettings):null;
-  let decision;
+  let decision,dialogueResearch;
   if(settingsUpdate)decision={intent:'plan',reply:'已收到你修改的旅行时间与强度。'};
   else if(mode==='ai'){
     if(!options.key?.trim())throw new Error('尚未配置 DeepSeek；请选择本地示范模式。');
-    decision=await ask('旅行对话 Agent',personalDialoguePrompt,{description:text,selectedDestination:body.destination,manualDestination:body.textRevision===false,previous:body.previous,notes:original.notes,...context},options);
+    const dialogueData={description:text,selectedDestination:body.destination,manualDestination:body.textRevision===false,previous:body.previous,notes:original.notes,...context,...(options.advisorEnabled&&body.currentPlan?.guide?{currentGuide:guideConversationContext(body.currentPlan.guide)}:{})};
+    if(options.advisorEnabled){const response=await askTravelAdvisor({role:'旅行对话 Agent',prompt:advisorDialoguePrompt,data:dialogueData},{...options,researchContext:savedPlanResearch(body.currentPlan,options.researchContext)});decision=response.value;dialogueResearch=response.research;}
+    else decision=await ask('旅行对话 Agent',personalDialoguePrompt,dialogueData,options);
   }else decision={intent:localIntent(text),reply:localAnswer(text,original)};
   if(!['answer','plan','clarify'].includes(decision.intent)||typeof decision.reply!=='string'||!decision.reply.trim())throw new Error('对话 Agent 没有返回有效回答，请重试。');
   const allowDefaults=body.allowDefaults===true||/按默认|默认安排|先出.*(?:方案|草案)|先给.*(?:方案|行程|路线|建议)|先安排|你决定|你来定|随便推荐|不用问|直接安排/.test(text);
-  const ordinaryQuestion=!settingsUpdate&&informationQuestion(text),patch=ordinaryQuestion||settingsUpdate?{}:groundedProfilePatch(decision,text,previous);
+  const ordinaryQuestion=!settingsUpdate&&informationQuestion(text),explicitQuestionFacts=options.advisorEnabled&&ordinaryQuestion?questionFacts(text):'',patch=ordinaryQuestion||settingsUpdate?{}:groundedProfilePatch(decision,text,previous);
   // A requested draft authorizes tentative defaults in the same revision as this turn's facts.
   let mergeText=allowDefaults?`${text}\n按默认`:text;
   const selectedCity=ordinaryQuestion||settingsUpdate?null:manualDestinationForTurn(body,mergeText,previous,patch);
@@ -169,14 +226,19 @@ async function chatTravelWithProfile(body,options){
     // A touched dropdown is explicit user input, converted to text for the same safe merger.
     mergeText=`目的地是${selectedCity}。\n${mergeText}`;
   }
-  const updated=settingsUpdate??(ordinaryQuestion?{profile:previous,changed:false,changes:[]}:updateTravelProfile(previous,{text:mergeText,patch,destination:body.textRevision===false?body.destination:undefined,hours:body.textRevision===false?body.hours:undefined}));
+  const updated=settingsUpdate??(ordinaryQuestion?(explicitQuestionFacts?updateTravelProfile(previous,{text:explicitQuestionFacts,patch:groundedProfilePatch(decision,explicitQuestionFacts,previous)}):{profile:previous,changed:false,changes:[]}):updateTravelProfile(previous,{text:mergeText,patch,destination:body.textRevision===false?body.destination:undefined,hours:body.textRevision===false?body.hours:undefined}));
   let profile=updated.profile;
-  stage('对话 Agent','complete',ordinaryQuestion?'识别为问答，保留需求和当前行程':updated.changed?'已整理本轮明确提供的需求':'已沿用保存的需求');
+  stage('对话 Agent','complete',ordinaryQuestion?updated.changed?'已记下本轮明确偏好，回答问题并保留当前路线':'识别为问答，保留需求和当前行程':updated.changed?'已整理本轮明确提供的需求':'已沿用保存的需求');
   if(settingsUpdate&&!settingsUpdate.changed)return {kind:'answer',status:'answered',assistantReply:'这些设置与当前旅行条件一致，行程保持不变。',profile:previous,mode,trace};
-  if(ordinaryQuestion||(decision.intent==='answer'&&!updated.changed&&!allowDefaults))return {kind:'answer',status:'answered',assistantReply:short(decision.reply,1800),profile:previous,mode,trace};
-  const followUps=travelFollowUps(profile,{allowDefaults});
+  if(ordinaryQuestion||(decision.intent==='answer'&&!updated.changed&&!allowDefaults)){
+    if(updated.changed)emit({type:'profile',profile});
+    return {kind:'answer',status:'answered',assistantReply:short(decision.reply,1800),profile:updated.changed?profile:previous,mode,trace,...(dialogueResearch?{research:dialogueResearch,sourceIds:decision.sourceIds||[]}:{} )};
+  }
+  const continuingTrip=body.currentPlan?.city===profileValue(profile,'destination')&&Array.isArray(body.currentPlan?.stops);
+  const restartInterview=/(?:重新|从头)(?:了解|梳理|询问|问|采访|定制)|(?:深入|详细)(?:了解|询问|采访|定制)|再问我.*(?:偏好|需求)/.test(text);
+  const followUps=travelFollowUps(profile,{allowDefaults,detailed:mode==='ai'&&options.advisorEnabled===true&&!settingsUpdate&&(!continuingTrip||restartInterview)});
   const clarify=(questions,reason='')=>{
-    profile={...profile,followUps:questions.slice(0,2)};
+    profile={...profile,followUps:questions.slice(0,options.advisorEnabled?3:2)};
     if(updated.changed)emit({type:'profile',profile});
     return {kind:'clarify',status:'needs-info',assistantReply:[reason||'我已记下你提供的条件。',...profile.followUps.map(q=>q.question)].join('\n'),profile,followUps:profile.followUps,mode,trace};
   };
@@ -187,16 +249,58 @@ async function chatTravelWithProfile(body,options){
   if(updated.changed)emit({type:'profile',profile});
   emit({type:'constraints',input});emit({type:'reply',text:'条件已整理，正在校验每日路线；最终安排尚未确认。'});
   const analysis=analyzeNotes(input.notes),catalog=places.filter(p=>p.city===input.destination),retain=routeCanStay(body,profile,updated.changes,text),reflow=retain&&updated.changes.some(field=>['dayCount','dailyHours','pace'].includes(field)),base=dailyBase(input,analysis,mode);
-  if(!catalog.length)base.assumptions.push('当前地点来自模型已有知识，均为待核实建议；地图仅显示路线顺序，不能解锁目录预制纪念品。');
-  let candidates;
+  if(retain)base.dayOverrides=reconcileDayOverrides(body.currentPlan.dayOverrides,updated.changes,input.dayCount);
+  // Explicitly added map stops remain candidates in later revisions; their display
+  // geometry and arbitrary client fields never become planning coordinates or sources.
+  for(const old of body.currentPlan?.stops??[]){
+    if(catalog.some(place=>place.id===old.id)||old.kind!=='suggested'||!isSuggestedItineraryId(old.id,input.destination)||!(profileValue(profile,'requiredPlaces')||[]).some(name=>namedMatch(old,name)))continue;
+    const {dayIndex,...candidate}=suggestedCandidates({stops:[{...old,dayIndex:undefined}]},input.destination,input,profile,true)[0];catalog.push(candidate);
+  }
+  if(!catalog.length&&!options.advisorEnabled)base.assumptions.push('当前地点来自模型已有知识，均为待核实建议；地图仅显示路线顺序，不能解锁目录预制纪念品。');
+  let candidates,routeResearch=dialogueResearch;
   if(retain){
     const retainedStops=reflow?body.currentPlan.stops.map(({dayIndex,...stop})=>stop):body.currentPlan.stops;
     candidates=catalog.length?retainedStops.map(old=>{
-      const point=catalog.find(p=>p.id===old.id);if(!point)throw new Error('保存路线包含资料范围外的地点，请重新安排');
+      const point=catalog.find(p=>p.id===old.id);if(!point)return suggestedCandidates({stops:[old]},input.destination,input,profile,true)[0];
       return {...point,minutes:old.minutes,transit:old.transit??0,...(old.dayIndex!==undefined?{dayIndex:old.dayIndex}:{}),evidence:analysis.places.find(p=>p.id===old.id)?.evidence||[],reason:'保留之前确认的地点'};
     }):suggestedCandidates({stops:retainedStops},input.destination,input,profile,true);
     base.title=wholeTripTitle(body.currentPlan.title,input,base.title);
     stage('路线 Agent','complete',reflow?'按新的天数、每日时间与强度重新分配已有地点':'只更新本轮条件，沿用已保存地点与日期');
+  }else if(mode==='ai'&&options.advisorEnabled){
+    stage('路线 Agent','working',`正在结合旅行偏好检索${input.destination}的地点与攻略`);
+    const dailyLimits={minutes:Math.round(input.dailyHours*60),maxStops:profileValue(profile,'pace')==='easy'?2:profileValue(profile,'pace')==='active'?4:3};
+    const validateDraft=draft=>{
+      // Convert only an unambiguous full 0..N-1 sequence. Mixed or incomplete
+      // numbering remains an error; no day membership or order is guessed.
+      if(Array.isArray(draft?.days)&&draft.days.length===input.dayCount&&draft.days.every((day,index)=>day?.dayIndex===index))draft={...draft,days:draft.days.map(day=>({...day,dayIndex:day.dayIndex+1}))};
+      const result=researchedCandidates(draft,input.destination,input,profile,routeResearch),checked=buildDailyPlan({...base,stops:result},profile);
+      if(checked.stops.length!==result.length)throw new Error(`每天包含转场最多${dailyLimits.minutes}分钟、最多${dailyLimits.maxStops}站；当前提案有地点超出容量。请缩短可行停留或去掉可选站，保留全部必去地点。`);
+      return result;
+    };
+    const response=await askTravelAdvisor({role:'城市旅行顾问',prompt:'为 input.destination 制定个性化多天旅行。可以选择整个城市真实存在且有实际取得资料的地点，不限现有目录，不固定为地标打卡。先按大众/小众、兴趣、饮食、同行人、住区、出发点、交通与日期检索攻略，再取合适资料组织空间上连贯的每日路线。所有地点必须由实际工具返回的sourceIds支持且名称出现在来源中；search-snippet来源可以支持明确标注“仅搜索摘要、待核实”的候选站，不要求所有站都取得fetched正文；摘要不能据此保证预约/营业。遵守必去与排除；startArea只是出发区域，不自动等于必去或游览站，无出处时只保留在出发需求中，不能插入stops。name只写真实地点名，不添加“商圈起点”“含附近用餐”等叙事后缀。预算不虚构总报价。dayIndex是从1开始的旅行日编号，第一天必须为1、不得为0，不能超过input.dayCount。输出 {title:string,days:[{dayIndex:number,stops:[{name:string,minutes:number,transit:number,story:string,task?:string,sourceIds:string[]}]}]}。1至28个不重复地点，minutes=10至240，transit=0至180是明确估算，每天首站的transit为0，每天停留加转场不能超过dailyLimits.minutes分钟、站数不超过dailyLimits.maxStops；这两个限制均为上限，不是至少站数或必须填满的时长。只要全部必去地点有可用来源，一天安排一个可靠地点也可以，剩余时间留作用餐、休息或自由安排，不要为了凑站数拒绝已有可行方案；餐饮也计入时间，优先在攻略作为就近建议而非额外赶路站。总标题覆盖整趟天数。不输出坐标、模型ID和自编网址。没有可访问的资料时输出 {unavailable:true,reason:string}，不要硬造路线。',data:{...context,input,profile,description:text,dailyLimits,sourceScope:'开放城市选择，目录不限制地点范围'}},{...options,requireResearch:true,researchContext:dialogueResearch,maxTokens:Math.min(6500,1600+(profileValue(profile,'dayCount')||1)*700)});
+    routeResearch=response.research;
+    if(!routeResearch.sources.some(source=>['fetched','search-snippet'].includes(source.accessStatus)))return {...clarify([],short(response.value.reason,400)||'暂时未能取得可引用的攻略资料，原方案仍保留。你可以稍后重试，或提供公开攻略链接。'),research:routeResearch};
+    let routeDraft=response.value;
+    try{
+      if(routeDraft.unavailable)throw new Error(`已有可引用资料，请检查是否足以覆盖必去地点并给出至少一站的可行安排。maxStops和minutes只是上限，不是必须填满的数量或时长。原判断：${short(routeDraft.reason,250)}`);
+      candidates=validateDraft(routeDraft);
+    }
+    catch(error){
+      stage('路线 Agent','working','正在依据同一份真实资料修正地点名称和来源对应');
+      try{
+        const repaired=await askTravelAdvisor({role:'路线核对顾问',prompt:'仅依据 availableResearch 修正 rejectedDraft，不能联网查询新资料，不能虚构来源、地点或分店。解决 validationError：名称使用来源中实际出现的写法，英文括号别名可以规范化，但不同城市或分店不能混同。每个输出站sourceIds必须非空且来源正文或摘要真实提到该站；无出处的可选地点必须删除，不能保留空sourceIds。startArea只是出发区域，若不是用户明确必去且没有出处，应从stops删除而保留出发需求；用户必去地点若没有出处，必须输出 {unavailable:true,reason:string}，不得悄悄删除。保持 profile 的城市、天数、时长、强度、必去与避开条件。dayIndex必须从1开始，第一天为1，不能为0或超过input.dayCount。name使用来源中实际地点名，不附加游览说明。必须再次检查每天停留加转场不超过dailyLimits.minutes分钟，站数不超dailyLimits.maxStops；二者都是上限而非必须达到的数量和时长，一天一站完全可行，可留下自由活动/用餐/休息时间；search-snippet可支持明确标注待核实的地点候选，不要求每条都已读取正文，不能据摘要保证营业或预约；即使validationError只说名称错误也须修正容量。输出完整 JSON {title:string,days:[{dayIndex:number,stops:[{name:string,minutes:number,transit:number,story:string,task?:string,sourceIds:string[]}]}]}，minutes=10至240，transit=0至180，每天首站的transit为0，总计1至28个地点。若rejectedDraft是unavailable而现有资料已支持必去地点，应依据这些资料生成尽量简单且可行的单站或少站安排；否则不增加原提案以外的新想法。仍缺必去证据时才输出unavailable。',data:{input,profile,dailyLimits,rejectedDraft:routeDraft,validationError:short(error.message,400)}},{...options,allowResearch:false,researchContext:routeResearch,maxTokens:Math.min(6500,1600+(profileValue(profile,'dayCount')||1)*700)});
+        routeDraft=repaired.value;
+        if(routeDraft.unavailable)throw new Error(short(routeDraft.reason,400)||'必去地点暂时缺少可以对应的资料');
+        candidates=validateDraft(routeDraft);
+      }catch(repairError){
+        options.signal?.throwIfAborted();
+        stage('路线 Agent','error','现有资料未能支持完整路线，已保留原方案');
+        return {...clarify([],`现有资料还不能形成可靠路线：${short(repairError.message,400)}。原方案仍保留，可以提供更具体的公开攻略或稍后重试。`),research:routeResearch};
+      }
+    }
+    base.title=wholeTripTitle(routeDraft.title,input,base.title);
+    base.assumptions.push('地点依据本轮取得的公开资料筛选；停留与转场为规划估算，地图导航和临行核实优先。');
+    stage('路线 Agent','complete',`已根据 ${routeResearch.sources.filter(source=>['fetched','search-snippet'].includes(source.accessStatus)).length} 项资料整理${input.destination}路线候选`);
   }else if(catalog.length){
     const excluded=p=>(profileValue(profile,'excludedPlaces')||[]).some(name=>namedMatch(p,name));
     const required=catalog.filter(p=>(profileValue(profile,'requiredPlaces')||[]).some(name=>namedMatch(p,name)));
@@ -206,11 +310,11 @@ async function chatTravelWithProfile(body,options){
       const extracted=await ask('资料分析 Agent','结合输入资料总结可参考观点和分歧。输出 {summary:string}，没有导入资料时说明目录资料范围。',{input,profile,analysis,catalog},options);
       stage('资料 Agent','complete',short(extracted.summary)||analysis.summary);stage('研判 Agent','working','正在依据已确认需求筛选地点');
       const judged=await ask('偏好研判 Agent','从 catalog 选择符合 profile 的地点，输出 {placeIds:string[],reason:string}。不改写已确认预算、人数、天数或必去/排除条件。必去地点全部纳入候选；目录稀疏时不要虚构景点填满日期。',{input,profile,previous:context.currentPlan,catalog,summary:short(extracted.summary),retainPreviousRoute:retain},options);
-      selected=validIds(judged.placeIds,input.destination);
+      selected=validIds(judged.placeIds,input.destination,catalog);
       selected=[...new Set([...selected,...required.map(p=>p.id)])].filter(id=>!excluded(catalog.find(p=>p.id===id)));
       stage('研判 Agent','complete',short(judged.reason)||'已依据确认条件筛选');stage('路线 Agent','working','正在组织每日路线候选');
       route=await ask('路线规划 Agent','组织 selected 的地点顺序，输出 {placeIds:string[],title:string,reason:string}。title 描述覆盖 input.dayCount 全部天数的整趟旅行，多天不能使用首日、半日或单日标题。不添加未选择的地点，不删除必去地点。每日游览时间独立于旅行天数；可用资料不足时留出自由时间，不重复地点填满日期。保留旧路线时不重新随机推荐。',{input,profile,selected,catalog:catalog.filter(p=>selected.includes(p.id)),previous:context.currentPlan,retainPreviousRoute:retain},options);
-      const ids=validIds(route.placeIds,input.destination);if(ids.some(id=>!selected.includes(id)))throw new Error('路线 Agent 添加了未经筛选或已排除的地点');selected=[...new Set([...ids,...selected])];
+      const ids=validIds(route.placeIds,input.destination,catalog);if(ids.some(id=>!selected.includes(id)))throw new Error('路线 Agent 添加了未经筛选或已排除的地点');selected=[...new Set([...ids,...selected])];
       base.title=wholeTripTitle(route.title,input,base.title);
       stage('路线 Agent','complete',short(route.reason)||'每日路线候选已整理');
     }else{for(const role of ['资料 Agent','研判 Agent','路线 Agent'])stage(role,'complete','本地目录规则：依据已确认需求组织每日安排');}
@@ -226,18 +330,33 @@ async function chatTravelWithProfile(body,options){
     base.title=wholeTripTitle(draft.title,input,base.title);
     stage('路线 Agent','complete',`${input.destination}的每日建议已整理`);
   }else return clarify([{field:'destination',question:'本地目录暂时覆盖广州、苏州和杭州；你想选哪座城市，或切换 AI 规划？'}]);
+  if(retain&&options.advisorEnabled)candidates=candidates.map(candidate=>{
+    const old=body.currentPlan.stops.find(stop=>stop.id===candidate.id);
+    return {...candidate,...(Array.isArray(old?.sourceIds)?{sourceIds:old.sourceIds.filter(id=>typeof id==='string'&&/^web-[\w.-]{1,80}$/.test(id)).slice(0,8)}:{}),reason:'保留之前确认的地点与日期；本轮未重新检索这些地点'};
+  });
   stage('总控 Agent','working','正在检查每日时长、全部必去地点与排除要求');
   try{
     let plan=buildDailyPlan({...base,stops:candidates},profile,{reflow});
-    if(catalog.length&&(!retain||reflow)){
+    if(catalog.length&&(!retain||reflow)&&!(options.advisorEnabled&&mode==='ai'&&!retain)){
       const timedStops=plan.days.flatMap(day=>day.stops.map((stop,index)=>({...stop,transit:estimatedTransit(day.stops[index-1],stop,input)})));
       plan=buildDailyPlan({...base,stops:timedStops},profile);
     }
-    if(!plan.stops.length)throw new Error('现有每日时间与排除条件下没有可安排地点，请增加可用时间或放宽条件');
+    if(retain&&!reflow&&updated.changes.every(field=>['budget','companions','diet'].includes(field))&&Array.isArray(body.currentPlan.days)){
+      const schedule=day=>JSON.stringify([day.dayIndex,day.startTime,day.hours,day.totalMinutes,day.freeMinutes,day.stops.map(stop=>[stop.id,stop.name,stop.dayIndex,stop.minutes,stop.transit,stop.estimatedStart,stop.clockStart])]);
+      plan.days=plan.days.map(day=>{const old=body.currentPlan.days.find(item=>item.dayIndex===day.dayIndex);return old&&schedule(old)===schedule(day)?old:day;});
+      plan.stops=plan.days.flatMap(day=>day.stops);
+    }
+    if(!plan.stops.length&&!(retain&&body.currentPlan.stops.length===0))throw new Error('现有每日时间与排除条件下没有可安排地点，请增加可用时间或放宽条件');
     stage('总控 Agent','complete',`已校验 ${plan.days.length} 天、${plan.stops.length} 站，保留所有必去要求`);
     const defaults=Object.entries(profile.fields).filter(([,field])=>field.status==='tentative').map(([name])=>({dailyHours:'每日可用时间',dayCount:'旅行天数',startTime:'开始时间',pace:'出行节奏'}[name]||'未确认条件'));
     if(defaults.length)plan.assumptions=[...plan.assumptions,`暂按默认${[...new Set(defaults)].join('、')}起草，可继续调整。`];
-    return {...plan,kind:'plan',status:'ready',profile,trace,assistantReply:`已按${input.destination}、${plan.days.length}天、每天${input.hours}小时整理行程。\n${plan.days.map(day=>`第${day.dayIndex}天：${day.stops.map(p=>p.name).join(' → ')||'自由安排，目录暂无更多可核对地点'}。`).join('\n')}${input.budget?`\n预算保留为${input.budget}，费用尚未核实。`:''}\n开放、预约、交通和费用仍需要出发前确认。`,changeSummary:reflow?'已按新时间与强度重排行程，并检查全部必去地点。':retain?'已更新本轮条件，保留原路线和全部必去地点。':plan.changeSummary};
+    let guide=settingsUpdate&&body.currentPlan?.guide?reconcileGuide(body.currentPlan.guide,plan):undefined;
+    if(mode==='ai'&&options.advisorEnabled){
+      const detailChanges=updated.changes.some(field=>['diet','companions','startTime','travelDates','transport','stayArea','startArea','pace','crowdPreference','interests'].includes(field));
+      if(retain&&!reflow&&!detailChanges&&body.currentPlan.guide?.status!=='unavailable')try{guide=validateTravelGuide(body.currentPlan.guide,plan,{status:body.currentPlan.guide.researchStatus,sources:body.currentPlan.guide.sources||[],errors:[]});}catch{}
+      if(!guide&&!settingsUpdate){stage('攻略顾问','working','正在补充每站玩法、餐饮、交通、预约与雨天建议');guide=await enrichTravelPlan(plan,{profile,description:text,history:context.history},{...options,researchContext:routeResearch});stage('攻略顾问',guide.status==='unavailable'?'error':'complete',guide.status==='unavailable'?'详细攻略暂时未能完成，已保留地点与行程':'已补充详细游览建议，并保留每项资料出处');}
+    }
+    return {...plan,kind:'plan',status:'ready',profile,trace,...(guide?{guide}:{}),...(routeResearch?{research:routeResearch}:{}),assistantReply:`已按${input.destination}、${plan.days.length}天、每天${input.hours}小时整理行程。\n${plan.days.map(day=>`第${day.dayIndex}天：${day.stops.map(p=>p.name).join(' → ')||'留作自由安排'}。`).join('\n')}${input.budget?`\n预算保留为${input.budget}，费用尚未核实。`:''}\n${guide&&guide.status!=='unavailable'?'每站玩法、餐饮与备选建议已整理到详细攻略，可继续问我具体怎么游玩。':'开放、预约、交通和费用仍需要出发前确认。'}`,changeSummary:reflow?'已按新时间与强度重排行程，并检查全部必去地点。':retain?'已更新本轮条件，保留原路线和全部必去地点。':plan.changeSummary};
   }catch(error){
     stage('总控 Agent','error',error.message);
     return clarify([{field:'dailyHours',question:'你愿意增加每天可用时间或延长天数，还是减少必去地点？'}],`当前条件无法形成完整安排：${error.message}。原方案仍保留。`);
@@ -245,7 +364,15 @@ async function chatTravelWithProfile(body,options){
 }
 export async function chatTravel(body,options={}){
   if(!body||typeof body!=='object'||Array.isArray(body)||typeof body.description!=='string'||body.description.length>2000)throw new Error('对话内容格式无效或过长');
-  if(Object.hasOwn(body,'profile'))return chatTravelWithProfile(body,options);
+  if(Object.hasOwn(body,'itineraryEdit')){
+    if(!Object.hasOwn(body,'profile')||Object.hasOwn(body,'tripSettings'))throw new Error('请一次提交一种明确的行程调整');
+    const plan=applyItineraryEdit(body,body.itineraryEdit);options.onProgress?.({type:'stage',role:'总控 Agent',status:'complete',detail:'已校验明确选择的地点与每日安排'});return plan;
+  }
+  if(Object.hasOwn(body,'profile')){
+    const dayEdit=!Object.hasOwn(body,'tripSettings')?detectTravelDayEdit(body.description):null;
+    if(dayEdit){const result=applyTravelDayEdit(body,dayEdit);options.onProgress?.({type:'stage',role:'总控 Agent',status:result.kind==='plan'?'complete':'error',detail:result.kind==='plan'?`仅调整第${dayEdit.dayIndex}天，保留其他日期与全程需求`:result.assistantReply});return result;}
+    return chatTravelWithProfile(body,options);
+  }
   const context=conversationContext(body),emit=e=>options.onProgress?.(e);
   // Questions may mention a stop duration that is not the itinerary duration.
   let original=normalizeRequest({...body,description:'',hours:undefined});original.description=body.description.trim();

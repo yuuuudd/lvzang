@@ -38,7 +38,7 @@ files.add('src/product-rules.js');files.add('src/three-mf.js');files.add('src/ff
 for(const name of ['travel.html','travel.css','src/travel.js','src/travel-catalog.js','src/travel-domain.js','src/travel-state.js','src/souvenir-mesh.js','assets/travel-world.webp'])files.add(name);
 for(const name of ['travel-workspace.css','src/travel-workspace.js','assets/guangzhou-guide.webp'])files.add(name);
 for(const name of ['assets/travel-canvas-bg.webp','assets/travel-gallery-bg.webp','src/travel-cover.js','src/mesh-glb-export.js','src/travel-gallery.js','travel-gallery.css'])files.add(name);
-for(const name of ['src/travel-profile.js','src/travel-schedule.js','travel-map-explorer.css','src/travel-map.js','src/travel-map-data.js','src/travel-map-selection.js','src/travel-map-journey.js','src/travel-map-landmarks.js','src/travel-map-layout.js','src/travel-map-exploration.js','src/travel-map-query.js'])files.add(name);
+for(const name of ['src/travel-profile.js','src/travel-schedule.js','travel-map-explorer.css','src/travel-map.js','src/travel-map-data.js','src/travel-map-selection.js','src/travel-map-journey.js','src/travel-map-landmarks.js','src/travel-map-layout.js','src/travel-map-exploration.js','src/travel-map-query.js','src/travel-map-location.js','src/travel-itinerary-edit.js','src/travel-guide-view.js','travel-advisor.css'])files.add(name);
 for(const name of ['mountains','arrow-up-right','note-pencil','sparkle','paper-plane-tilt','paperclip','check-circle','hand','frame-corners','arrow-counter-clockwise','map-pin','arrows-clockwise','path','clock','coins','heart','book-open','minus','plus','x','robot','user','lock-key','check','circle-notch'])files.add('assets/icons/'+name+'.svg');
 
 function validateImage(image) {
@@ -68,7 +68,7 @@ function parseDeepSeekJson(content){
   }
 }
 
-export function createApp({key=process.env.DEEPSEEK_API_KEY||'',model=process.env.DEEPSEEK_MODEL||'deepseek-flash',segmentImage=segmentLocally,tripoKey=process.env.TRIPO_API_KEY||'',tripoModel=process.env.TRIPO_IMAGE_MODEL||'chat_image_2.5_sunburst',amapJsKey=process.env.AMAP_JS_API_KEY||'',amapSecurityJsCode=process.env.AMAP_SECURITY_JS_CODE||'',developerBatch3D=process.env.DEVELOPER_BATCH_3D==='true',vercel=process.env.VERCEL==='1',publicOrigin=process.env.PUBLIC_ORIGIN||'',eventCode=process.env.EVENT_CODE||'',fetchImpl=fetch,loadEventImages=readEventImages,build=buildMagnetModel,collectionDir=fileURLToPath(new URL('./output/collections/',import.meta.url)),collectionServices,collectionPollMs=2500,accountsEnabled=false,testRoles=false,accountDir=fileURLToPath(new URL('./output/accounts/',import.meta.url))}={}) {
+export function createApp({key=process.env.DEEPSEEK_API_KEY||'',model=process.env.DEEPSEEK_MODEL||'deepseek-flash',segmentImage=segmentLocally,tripoKey=process.env.TRIPO_API_KEY||'',tripoModel=process.env.TRIPO_IMAGE_MODEL||'chat_image_2.5_sunburst',amapJsKey=process.env.AMAP_JS_API_KEY||'',amapSecurityJsCode=process.env.AMAP_SECURITY_JS_CODE||'',developerBatch3D=process.env.DEVELOPER_BATCH_3D==='true',vercel=process.env.VERCEL==='1',publicOrigin=process.env.PUBLIC_ORIGIN||'',eventCode=process.env.EVENT_CODE||'',fetchImpl=fetch,researchFetchImpl=fetch,loadEventImages=readEventImages,build=buildMagnetModel,collectionDir=fileURLToPath(new URL('./output/collections/',import.meta.url)),collectionServices,collectionPollMs=2500,accountsEnabled=false,testRoles=false,advisorEnabled=true,accountDir=fileURLToPath(new URL('./output/accounts/',import.meta.url))}={}) {
   const amapService=createAmapService({key:amapJsKey,securityJsCode:amapSecurityJsCode,fetchImpl});
   let accountWorkspace;const workspace=()=>accountWorkspace??=createAccountWorkspace(accountDir);const internalToken=randomBytes(32).toString('hex'),loginAttempts=new Map();
   // ponytail: recover only recent tasks from this one restart; use durable storage if routine restarts need resume.
@@ -213,9 +213,9 @@ export function createApp({key=process.env.DEEPSEEK_API_KEY||'',model=process.en
         res.writeHead(200,{'Content-Type':'application/x-ndjson; charset=utf-8','Cache-Control':'no-store','X-Accel-Buffering':'no'});res.flushHeaders();
         const controller=new AbortController(),cancel=()=>controller.abort();res.once('close',cancel);
         const send=event=>{if(!res.destroyed&&!controller.signal.aborted)res.write(JSON.stringify(event)+'\n');};
-        try{const options={key,model,fetchImpl,onProgress:send,signal:controller.signal};send(route.includes('/travel-chat/')?{type:'result',response:await chatTravel(body,options)}:{type:'result',plan:await planTravel(body,options)});}catch(error){send({type:'error',error:error.name==='TimeoutError'?'策划超时，原方案已保留，请重试。':error.message});}finally{res.off('close',cancel);if(!res.destroyed)res.end();}return;
+        try{const options={key,model,fetchImpl,researchFetchImpl,advisorEnabled,onProgress:send,signal:controller.signal};send(route.includes('/travel-chat/')?{type:'result',response:await chatTravel(body,options)}:{type:'result',plan:await planTravel(body,options)});}catch(error){send({type:'error',error:error.name==='TimeoutError'?'策划超时，原方案已保留，请重试。':error.message});}finally{res.off('close',cancel);if(!res.destroyed)res.end();}return;
       }
-      try{return json(200,await planTravel(body,{key,model,fetchImpl}));}catch(error){return json(/格式|过长|最多|时长/.test(error.message)?400:502,{error:error.name==='TimeoutError'?'策划超时，原方案已保留，请重试。':error.message});}
+      try{return json(200,await planTravel(body,{key,model,fetchImpl,researchFetchImpl,advisorEnabled}));}catch(error){return json(/格式|过长|最多|时长/.test(error.message)?400:502,{error:error.name==='TimeoutError'?'策划超时，原方案已保留，请重试。':error.message});}
     }
     if(req.method==='POST'&&route==='/api/travel-import'){
       if(req.headers.origin!==origin)return json(403,{error:'请从页面导入截图'});

@@ -2,8 +2,9 @@ import {selectAmapPlace,parseAmapRoute,amapNavigationUrl} from './travel-map-dat
 import {createLandmarkMarker,setLandmarkState} from './travel-map-landmarks.js';
 import {layoutLandmarks} from './travel-map-layout.js';
 import {createJourneyInspector} from './travel-map-journey.js';
-import {getExplorationLandmarks} from './travel-map-exploration.js';
+import {getExplorationLandmarks,getExplorationLandmark} from './travel-map-exploration.js';
 import {createPacedQuery} from './travel-map-query.js';
+import {locateCurrentPosition} from './travel-map-location.js';
 
 let sdkPromise=null;
 let configPromise=null;
@@ -61,14 +62,27 @@ export function createTravelMap() {
   const explorationButton = document.getElementById('map-exploration-toggle');
   const zoomInButton = document.getElementById('map-zoom-in');
   const zoomOutButton = document.getElementById('map-zoom-out');
+  const densitySelect = document.getElementById('map-density');
+  const categorySelect = document.getElementById('map-category');
+  const locationButton = document.getElementById('map-use-location');
+  const locationStatus = document.getElementById('map-location-status');
+  const searchForm = document.getElementById('map-search-form');
+  const searchInput = document.getElementById('map-search-input');
+  const searchStatus = document.getElementById('map-search-status');
+  const searchResults = document.getElementById('map-search-results');
+  densitySelect.setAttribute('aria-label','地标密度');
+  categorySelect.setAttribute('aria-label','地标分类');
   let map = null, mapReadyPromise = null, sdk = null, generation = 0;
   let currentPlan = null, landmarkStops = [], mode = 'walk', available = false, threeD = true;
   let acceptedStops = [], excludedPlaces = [], excludedIds = [], showExploration = true, cameraMoved = false, isExample = false;
+  let density = 'signature', category = 'all', membershipChange = null, activeDayIndex = 1;
+  let locationToken = 0, searchToken = 0, currentLocation = null, locationMarker = null, locationPending = false;
+  const searchedPlaces = new Map();
   // Track user input separately from SDK zoom events, which also fire during fit().
   viewport.addEventListener('wheel', () => {cameraMoved = true;}, {capture: true, passive: true});
   viewport.addEventListener('touchstart', event => {if (event.touches.length > 1) cameraMoved = true;}, {capture: true, passive: true});
   viewport.addEventListener('keydown', event => {if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','+','-','='].includes(event.key)) cameraMoved = true;}, true);
-  const viewOptions = (preserveSelection = false) => ({landmarkStops: acceptedStops, excludedPlaces, excludedIds, preserveSelection, isExample});
+  const viewOptions = (preserveSelection = false) => ({landmarkStops: acceptedStops, excludedPlaces, excludedIds, preserveSelection, preserveCamera: true, isExample, onMembershipChange: membershipChange, activeDayIndex});
   let resolved = new Map(), markers = [], markerById = new Map(), rows = new Map();
   let drawn = new Set(), displayedRoutes = new Set(), selectionLine = null;
   const places = new Map(), placeRequests = new Map(), routes = new Map(), routeRequests = new Map();
@@ -91,7 +105,12 @@ export function createTravelMap() {
     });
     const caption = document.getElementById('map-landmark-caption');
     const top = Math.max(90, Math.ceil((caption.getBoundingClientRect().bottom - viewport.getBoundingClientRect().top) / (viewport.getBoundingClientRect().width / width)) + 12);
-    const offsets = layoutLandmarks(items, {width, height, top, bottom: 32, gap: 12});
+    // Dense discovery stays anchored to geography. Large packing offsets made a
+    // city look like a board of buildings disconnected from the road network.
+    const offsets = density === 'detailed' ? items.map(item=>({id:item.id,dx:0,dy:0})) : layoutLandmarks(items, {width, height, top, bottom: 32, gap: 12}).map(item=>{
+      const length=Math.hypot(item.dx,item.dy),factor=length>36?36/length:1;
+      return {...item,dx:item.dx*factor,dy:item.dy*factor};
+    });
     const nodes = [];
     leaders.setAttribute('viewBox', `0 0 ${width} ${height}`);
     for (const {id, dx, dy} of offsets) {
@@ -123,17 +142,26 @@ export function createTravelMap() {
     if (selectionLine) map?.remove?.(selectionLine);
     selectionLine = null;
   }
+  function cancelLocation(note = '可以继续手动选择起终点，或重新定位。') {
+    ++locationToken;
+    locationPending = false;
+    locationButton.disabled = !available;
+    locationStatus.dataset.state = 'idle';
+    locationStatus.textContent = note;
+  }
   const journey = createJourneyInspector({
+    onMembershipChange: change => membershipChange?.({...change,dayIndex:activeDayIndex}) ?? Promise.resolve(false),
+    onOriginIntent: () => cancelLocation(),
     requestRoute: requestJourney,
     clearRoute: clearSelectedRoute,
-    drawRoute(route) {
+    drawRoute(route, _originId, _destinationId, {fitView = true} = {}) {
       clearSelectedRoute();
       selectionLine = new sdk.Polyline({
         path: route.path, strokeColor: '#176b62', strokeWeight: 6, strokeOpacity: .96,
         zIndex: 120, extData: {kind: 'comparison'},
       });
       map.add(selectionLine);
-      map.setFitView([selectionLine], true, [135, 70, 80, 80], 17);
+      if (fitView) map.setFitView([selectionLine], true, [135, 70, 80, 80], 17);
     },
     highlight(selection) {
       for (const [id, marker] of markerById) setLandmarkState(marker.content, {
@@ -149,12 +177,15 @@ export function createTravelMap() {
     cameraButton.setAttribute('aria-pressed', String(threeD));
     cameraButton.textContent = threeD ? '3D 视角' : '俯视视角';
     cameraButton.title = threeD ? '切换为俯视地图' : '切换为立体地图';
+    locationButton.disabled = !enabled || locationPending;
+    searchForm.querySelector('button').disabled = !enabled;
   }
   function clear() {
     if (layoutFrame !== null) {cancelAnimationFrame(layoutFrame); layoutFrame = null;}
     leaders.replaceChildren();
     clearSelectedRoute();
     map?.clearMap();
+    locationMarker = null;
     markers = []; markerById = new Map();
     drawn = new Set(); displayedRoutes = new Set(); resolved = new Map(); rows = new Map();
     details.replaceChildren();
@@ -185,7 +216,7 @@ export function createTravelMap() {
     message.hidden = false;
   }
   function mapFailure() {
-    ++generation; available = false; journey.pause(); clear(); controls(false);
+    ++generation; ++searchToken; available = false; cancelLocation(); journey.pause(); clear(); controls(false);
     const failedMap = map; map = null; mapReadyPromise = null; failedMap?.destroy?.();
     resetNavigation(); modeSelect.disabled = true;
     setStatus('高德底图加载失败', 'error');
@@ -220,10 +251,20 @@ export function createTravelMap() {
     }).catch(error => {mapReadyPromise = null; throw error;});
     return mapReadyPromise;
   }
-  function fit() {
-    if (markers.length === 1) map.setZoomAndCenter(17, resolved.values().next().value.position);
-    else if (markers.length > 1) map.setFitView(markers, true, [135, 60, 75, 75], 17);
+  function fit({all = false} = {}) {
+    // Automatic framing follows the active day. City-wide exploration and
+    // other days remain available without shrinking nearby itinerary buildings.
+    const focusStops = currentPlan.stops.length ? currentPlan.stops : landmarkStops.filter(stop => stop.kind === 'exploration');
+    const focusMarkers = all ? markers : focusStops.map(stop => markerById.get(stop.id)?.marker).filter(Boolean);
+    if (focusMarkers.length === 1) map.setZoomAndCenter(17, focusMarkers[0].getPosition());
+    else if (focusMarkers.length > 1) map.setFitView(focusMarkers, true, [135, 60, 75, 75], 17);
     scheduleLayout();
+  }
+  function showCurrentLocation() {
+    if (!currentLocation || !map || locationMarker) return;
+    const content = element('span', '我的位置', 'map-current-location');
+    locationMarker = new sdk.Marker({position:currentLocation.position,content,anchor:'bottom-center',zIndex:130,title:'我的位置'});
+    map.add(locationMarker);
   }
   function report() {
     const count = currentPlan.stops.filter(stop => resolved.has(stop.id)).length;
@@ -246,11 +287,15 @@ export function createTravelMap() {
     const dayIndex = stop.kind === 'exploration' ? null : stop.dayIndex || currentPlan.dayIndex || null;
     const dayStops = dayIndex ? landmarkStops.filter(item => item.dayIndex === dayIndex) : landmarkStops;
     const dayStopIndex = dayStops.findIndex(item => item.id === stop.id);
-    const content = createLandmarkMarker(stop, {index: index >= 0 ? index : Math.max(0, dayStopIndex), dayIndex, isToday: index >= 0, isExample});
-    content.onclick = () => journey.choose(stop.id);
+    const content = createLandmarkMarker(stop, {index: index >= 0 ? index : Math.max(0, dayStopIndex), dayIndex, isToday: index >= 0, isExample,compact:density==='detailed'});
+    content.onclick = () => {
+      if(locationPending)cancelLocation();
+      journey.choose(stop.id);
+    };
     const marker = new sdk.Marker({position: place.position, title: place.name, content, anchor: 'bottom-center', zIndex: index >= 0 ? 110 : 100});
     map.add(marker); markers.push(marker); markerById.set(stop.id, {marker, content});
-    if (!cameraMoved) fit(); else scheduleLayout();
+    const followsDay = currentPlan.stops.length ? index >= 0 : stop.kind === 'exploration';
+    if (!cameraMoved && followsDay) fit(); else scheduleLayout();
     navigation(); report(); journey.updatePlaces(resolved); drawRoutes(token);
   }
   function candidates(stop, result, token, error = '') {
@@ -281,9 +326,9 @@ export function createTravelMap() {
     };
     row.append(form, button('重试地点查询', () => render(currentPlan, viewOptions())));
   }
-  function search(keyword, city) {
+  function search(keyword, city, priority = false) {
     const service = new sdk.PlaceSearch({city, citylimit: true, pageSize: 20, extensions: 'all'});
-    return enqueuePlaceQuery(() => query(callback => service.search(keyword, (status, result) => callback(status === 'no_data' ? 'complete' : status, status === 'no_data' ? {poiList: {pois: []}} : result))));
+    return enqueuePlaceQuery(() => query(callback => service.search(keyword, (status, result) => callback(status === 'no_data' ? 'complete' : status, status === 'no_data' ? {poiList: {pois: []}} : result))),{priority});
   }
   async function locate(stop, city, token) {
     const key = lookupKey(city, stop);
@@ -337,16 +382,24 @@ export function createTravelMap() {
   }
   async function render(plan, options = {}) {
     if (!plan) return;
+    const cityChanged = currentPlan && currentPlan.city !== plan.city;
+    const preserveSelection = Boolean(options.preserveSelection && !cityChanged);
+    if (!preserveSelection) cancelLocation('定位由你主动开启，仅用于本次路程比较。');
+    if (cityChanged) {searchedPlaces.clear();currentLocation=null;++searchToken;searchResults.replaceChildren();searchStatus.textContent='精选目录并非全城所有地点；可以用高德搜索补充。';}
     currentPlan = plan;
+    membershipChange = options.onMembershipChange || null;
+    activeDayIndex = options.activeDayIndex || plan.dayIndex || 1;
     isExample = Boolean(options.isExample);
-    cameraMoved = false;
+    cameraMoved = Boolean(options.preserveCamera && map && !cityChanged);
     const cityName = value => String(value || '').replace(/市$/, '');
     const merged = [...plan.stops, ...(options.landmarkStops || plan.stops)].filter(stop => cityName(stop.city || plan.city) === cityName(plan.city));
     acceptedStops = [...new Map(merged.filter(stop => stop.kind !== 'exploration').map(stop => [stop.id, stop])).values()];
     excludedPlaces = [...(options.excludedPlaces || [])]; excludedIds = [...(options.excludedIds || [])];
-    landmarkStops = [...acceptedStops, ...(showExploration ? getExplorationLandmarks(plan.city, {acceptedStops, excludedPlaces, excludedIds}) : [])];
+    const discoveries = showExploration ? getExplorationLandmarks(plan.city, {acceptedStops, excludedPlaces, excludedIds,density,category}) : [];
+    const searched = [...searchedPlaces.values()].map(item=>item.stop).filter(stop=>!acceptedStops.some(accepted=>accepted.id===stop.id||accepted.name===stop.name));
+    landmarkStops = [...new Map([...acceptedStops,...discoveries,...searched].map(stop=>[stop.id,stop])).values()];
     const token = ++generation;
-    clear(); journey.reset({landmarkStops, mode, preserve: Boolean(options.preserveSelection), isExample}); resetNavigation(); controls(false);
+    clear(); journey.reset({landmarkStops, mode, preserve: preserveSelection, preserveCamera: cameraMoved, isExample}); resetNavigation(); controls(false);
     locationDetails.open = false;
     surface.classList.remove('illustration', 'schematic'); modeSelect.disabled = false;
     setStatus('正在加载高德地图…', 'loading'); showMessage('正在连接高德地图…');
@@ -358,7 +411,7 @@ export function createTravelMap() {
       }
       sdk = await loadSdk(config); if (!isCurrent(token)) return;
       await initializeMap(); if (!isCurrent(token)) return;
-      map.resize?.(); available = true; controls(true);
+      map.resize?.(); available = true; controls(true);showCurrentLocation();
       if (!landmarkStops.length) {
         setStatus('当天尚无地点 · 高德地图', 'empty'); showMessage('这一天还没有可靠地点安排，可在对话中补充。'); return;
       }
@@ -370,7 +423,7 @@ export function createTravelMap() {
       }
     } catch (error) {
       if (!isCurrent(token)) return;
-      available = false; journey.pause(); controls(false); modeSelect.disabled = true;
+      available = false; cancelLocation(); journey.pause(); controls(false); modeSelect.disabled = true;
       if (error.code === 'AMAP_CONFIG_CHANGED') {
         const previousMap = map; map = null; mapReadyPromise = null; previousMap?.destroy?.();
         setStatus('高德地图配置已更新', 'error'); showMessage('地图配置已更新，请刷新页面应用新配置。');
@@ -389,16 +442,59 @@ export function createTravelMap() {
     if (!threeD) map.setRotation?.(0, true);
     controls(true);
   };
-  fitButton.onclick = () => {if (available) fit();};
+  fitButton.onclick = () => {if (available) {cameraMoved = true;fit({all:true});}};
   northButton.onclick = () => {if (available) map.setRotation?.(0, true);};
   explorationButton.onclick = () => {showExploration = !showExploration; render(currentPlan, viewOptions(true));};
+  densitySelect.onchange = () => {density=densitySelect.value;showExploration=density!=='itinerary';render(currentPlan,viewOptions(true));};
+  categorySelect.onchange = () => {category=categorySelect.value;render(currentPlan,viewOptions(true));};
+  locationButton.onclick = async () => {
+    if (!available || locationPending) return;
+    const version=++locationToken;
+    locationPending=true;
+    locationButton.disabled=true;locationStatus.dataset.state='loading';locationStatus.textContent='正在获取设备位置，请允许浏览器定位…';
+    try {
+      const place=await locateCurrentPosition(sdk);
+      if (version!==locationToken || !available) return;
+      currentLocation=place;if(locationMarker)map.remove(locationMarker);locationMarker=null;showCurrentLocation();
+      cameraMoved=true;journey.setCurrentLocation(place);
+      locationStatus.dataset.state='ready';locationStatus.textContent=place.warning||`已设为起点${place.accuracy?` · 精度约 ${Math.ceil(place.accuracy)} 米`:''}。点击想去的景点即可估算路程。`;
+    } catch(error) {if(version===locationToken){locationStatus.dataset.state='error';locationStatus.textContent=error.message;}}
+    finally {if(version===locationToken){locationPending=false;locationButton.disabled=!available;}}
+  };
+  searchForm.onsubmit = async event => {
+    event.preventDefault();const term=searchInput.value.trim();if(!term||!available)return;
+    const version=++searchToken,city=currentPlan.city;
+    searchStatus.textContent=`正在高德搜索${city}的“${term}”…`;searchResults.replaceChildren();
+    try {
+      const result=await search(term,city,true);if(version!==searchToken||currentPlan.city!==city)return;
+      const candidates=selectAmapPlace(result.poiList?.pois||[],{city,name:term}).candidates.slice(0,8);
+      searchStatus.textContent=candidates.length?'核对地址后选择；查看地点不会自动加入行程。':'没有找到该城市的匹配地点，请换个名称或补充地址。';
+      for(const place of candidates){
+        const choice=button(`${place.name} · ${place.address||place.city}`,async()=>{
+          if(version!==searchToken||currentPlan.city!==city)return;
+          const known=getExplorationLandmark(city,place.name);
+          const accepted=acceptedStops.find(stop=>stop.name===place.name||known?.id===stop.id);
+          const providerId=String(place.id||'').replace(/[^a-zA-Z0-9_-]/g,'').slice(0,100);
+          if(!accepted&&!known&&!providerId){searchStatus.textContent='该结果缺少可确认的地点编号，请换一个候选。';return;}
+          const stop=accepted||known||{id:'amap-'+providerId,name:place.name,city,kind:'exploration',aliases:[],source:''};
+          if(searchedPlaces.size>=12)searchedPlaces.delete(searchedPlaces.keys().next().value);
+          searchedPlaces.set(stop.id,{stop,place});places.set(lookupKey(city,stop),place);
+          await render(currentPlan,viewOptions(true));
+          if(version!==searchToken)return;
+          cameraMoved=true;map.setZoomAndCenter?.(16,place.position);journey.choose(stop.id);searchResults.replaceChildren();
+          searchStatus.textContent=`已定位${place.name}。可比较路程，也可明确加入行程。`;
+        });
+        choice.classList.add('map-search-choice');searchResults.append(choice);
+      }
+    }catch{if(version===searchToken)searchStatus.textContent='地点搜索失败，请检查网络后重试。';}
+  };
   zoomInButton.onclick = () => {if (available) {cameraMoved = true; map.zoomIn();}};
   zoomOutButton.onclick = () => {if (available) {cameraMoved = true; map.zoomOut();}};
   controls(false);
   return {
     render,
     pause() {
-      ++generation; journey.pause(); clear(); resetNavigation(); controls(false);
+      ++generation; ++searchToken; available=false; cancelLocation(); journey.pause(); clear(); resetNavigation(); controls(false);
       message.hidden = true; modeSelect.disabled = true;
       setStatus('可选示意图 · 地点、线路和距离未经高德核实', 'illustration');
     },
