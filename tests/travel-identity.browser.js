@@ -31,6 +31,7 @@ try{
   const retainedSources=()=>page.evaluate(()=>({legacyState:localStorage.getItem('lvzang.v1'),legacyChat:localStorage.getItem('lvzang.chat.v1'),guestState:localStorage.getItem('lvzang.v1:guest'),guestChat:localStorage.getItem('lvzang.chat.v1:guest')}));
   const sourceBytes=await retainedSources();assert.deepEqual(sourceBytes,{legacyState,legacyChat,guestState:legacyState,guestChat:legacyChat});
 
+  await page.locator('#trip-settings-disclosure > summary').click();
   await page.locator('#trip-day-count').fill('1');await page.locator('#trip-daily-hours').fill('2.5');await page.locator('#trip-pace').selectOption('easy');
   await page.getByRole('button',{name:'应用并调整行程',exact:true}).click();
   const identityResponse=page.waitForResponse(response=>response.url()===origin+'/api/auth/experience'&&response.request().method()==='POST');
@@ -52,7 +53,7 @@ try{
   assert.deepEqual((await current()).chat,updated.chat);
 
   await page.locator('.identity-menu summary').click();await page.locator('[data-identity-role=operator]').click();await page.waitForURL('**/operator.html');
-  await page.goto(origin+'/travel.html');await page.locator('#trip-day-count').waitFor();
+  await page.goto(origin+'/travel.html');await page.locator('#trip-day-count').waitFor({state:'attached'});
   const operator=await current();assert.notEqual(operator.user.id,userId);assert.equal(operator.user.activeRole,'operator');
   assert.equal(operator.state.plan,null);assert.deepEqual(operator.state.profile,emptyTravelProfile());assert.deepEqual(operator.chat,[]);assert.deepEqual(operator.state.collection,[]);
   assert.equal(await page.locator('#trip-day-count').inputValue(),'');assert.doesNotMatch(await page.locator('#chat-messages').textContent(),new RegExp(privatePhrase));
