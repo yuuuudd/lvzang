@@ -1,7 +1,9 @@
 import {byId,places} from './travel-catalog.js';
+import {emptyTravelProfile,normalizeTravelProfile} from './travel-profile.js';
 const KEY='lvzang.v1';
+const CHAT_KEY='lvzang.chat.v1';
 const clean=v=>typeof v==='string'?v:'';
-export function initialState(){return {version:1,plan:null,collection:[],requests:[],activities:[],notes:[],title:'我的旅行展柜'};}
+export function initialState(){return {version:1,plan:null,profile:emptyTravelProfile(),collection:[],requests:[],activities:[],notes:[],title:'我的旅行展柜'};}
 export function readState(storage){
   const raw=storage.getItem(KEY);if(!raw)return initialState();
   try{
@@ -19,17 +21,36 @@ export function readState(storage){
     for(const [key,check] of Object.entries(valid))if(!Array.isArray(result[key])||!result[key].every(check))throw new Error();
     if(result.collection.length>places.length||result.notes.length>8||result.activities.length>12)throw new Error();
     if(!string(result.title,60))throw new Error();
+    if(result.planningReset!==undefined&&typeof result.planningReset!=='boolean')throw new Error();
     const p=result.plan;
-    const stop=s=>s&&(byId(s.id)?webLink(s.source)&&s.source:s.kind==='suggested'&&/^suggested-[1-6]$/.test(s.id)&&string(s.name,80)&&s.name.trim()&&string(s.city,40)&&s.city===p.city&&s.source===''&&s.coords===null&&Number.isFinite(s.minutes)&&s.minutes>=10&&s.minutes<=240&&Number.isFinite(s.transit)&&s.transit>=0&&Number.isFinite(s.estimatedStart)&&s.estimatedStart>=0&&string(s.story,240)&&string(s.task,160));
+    const stop=s=>s&&(byId(s.id)?webLink(s.source)&&s.source:s.kind==='suggested'&&/^suggested-(?:[1-9]|1[0-9]|2[0-8])$/.test(s.id)&&string(s.name,80)&&s.name.trim()&&string(s.city,40)&&s.city===p.city&&s.source===''&&s.coords===null&&Number.isFinite(s.minutes)&&s.minutes>=10&&s.minutes<=240&&Number.isFinite(s.transit)&&s.transit>=0&&Number.isFinite(s.estimatedStart)&&s.estimatedStart>=0&&string(s.story,240)&&string(s.task,160));
     if(p&&(!Array.isArray(p.stops)||!p.stops.every(stop)||!Array.isArray(p.assumptions)||!Array.isArray(p.warnings)||!Array.isArray(p.trace)||!p.trace.every(t=>t&&string(t.role,80)&&string(t.detail,1000))||!p.analysis||!Array.isArray(p.analysis.findings)||!p.analysis.findings.every(f=>f&&string(f.title,80)&&string(f.text,6000))||!Array.isArray(p.analysis.places)||!p.analysis.places.every(a=>a&&string(a.name,80)&&Array.isArray(a.evidence)&&a.evidence.every(e=>e&&string(e.title,80)&&webLink(e.url??'')))||!p.input||!string(p.input.destination,40)))throw new Error();
     const named=p?.input?.placeConstraints;
     const placeNames=v=>Array.isArray(v)&&v.length<=12&&v.every(n=>string(n,80)&&n.trim());
     if(named&&(!string(named.city,40)||named.city!==p.city||!placeNames(named.required)||!placeNames(named.excluded)))throw new Error();
+    result.profile=normalizeTravelProfile(value.profile!==undefined?value.profile:p?.profile??emptyTravelProfile());
+    if(p?.profile!==undefined)normalizeTravelProfile(p.profile);
+    if(p?.days!==undefined){
+      if(!Array.isArray(p.days)||p.days.length<1||p.days.length>7)throw new Error();
+      const ids=new Set(),flat=new Map(p.stops.map(s=>[s.id,s]));
+      if(flat.size!==p.stops.length)throw new Error();
+      for(const [index,day]of p.days.entries()){
+        if(!day||day.dayIndex!==index+1||!string(day.title,120)||!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(day.startTime)||!Number.isFinite(day.hours)||day.hours<1||day.hours>12||!Number.isFinite(day.totalMinutes)||day.totalMinutes<0||!Number.isFinite(day.freeMinutes)||day.freeMinutes<0||!Array.isArray(day.stops)||!day.stops.every(stop))throw new Error();
+        for(const s of day.stops){if(s.dayIndex!==day.dayIndex||ids.has(s.id)||!flat.has(s.id)||JSON.stringify(flat.get(s.id))!==JSON.stringify(s))throw new Error();ids.add(s.id);}
+      }
+      if(ids.size!==p.stops.length)throw new Error();
+    }
     return result;
   }
   catch{throw new Error('本机收藏记录无法读取，请先导出或清理损坏数据。');}
 }
 export function writeState(storage,state){try{storage.setItem(KEY,JSON.stringify({...state,version:1}));}catch{throw new Error('本机保存失败，当前内容仍可查看，请导出展览备份。');}}
+function chatMessages(value){
+  if(!Array.isArray(value)||value.length>12||value.some(m=>!m||!['user','assistant'].includes(m.role)||typeof m.content!=='string'||m.content.length>2000))throw new Error('本机对话记录无法读取。');
+  return value.map(({role,content})=>({role,content}));
+}
+export function readTravelChat(storage){const raw=storage.getItem(CHAT_KEY);if(!raw)return [];try{const value=JSON.parse(raw);if(value?.version!==1)throw new Error();return chatMessages(value.messages);}catch{throw new Error('本机对话记录无法读取；旅行方案仍可恢复。');}}
+export function writeTravelChat(storage,messages){const bounded=chatMessages(messages.slice(-12).map(({role,content})=>({role,content:String(content).slice(0,2000)})));try{storage.setItem(CHAT_KEY,JSON.stringify({version:1,messages:bounded}));}catch{throw new Error('本机对话保存失败，当前对话仍可查看。');}}
 export function unlock(state,id,title=''){
   if(!byId(id))throw new Error('纪念品不存在');
   let item=state.collection.find(c=>c.id===id);

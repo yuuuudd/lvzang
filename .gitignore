@@ -14,3 +14,6 @@ artifacts/
 # Team handoff: keep only the blank configuration template
 !.env.example
 output/
+
+# Local visual review evidence is kept with the task, not the shared source.
+.impeccable/review/
