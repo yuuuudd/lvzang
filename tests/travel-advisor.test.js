@@ -227,7 +227,7 @@ test('an explicit request to restart preference discovery resumes the detailed i
   const profile=emptyTravelProfile();for(const [field,value]of Object.entries({destination:'广州',dayCount:2,dailyHours:4,startTime:'09:00',pace:'normal'}))profile.fields[field]={value,status:'confirmed'};
   const stub=provider([{intent:'plan',reply:'我们重新了解旅行需求。'}]);
   const result=await chatTravel({description:'重新了解我的旅行偏好',profile,currentPlan:{...plan,city:'广州'},mode:'ai',textRevision:true},{...stub,advisorEnabled:true});
-  assert.equal(result.kind,'clarify');assert.deepEqual(result.followUps.map(question=>question.field),['companions','crowdPreference','interests']);assert.equal(stub.calls.length,1);
+  assert.equal(result.kind,'clarify');assert.deepEqual(result.followUps.map(question=>question.field),['travelDates']);assert.equal(result.profile.interview.status,'active');assert.equal(stub.calls.length,0);
 });
 
 test('vague provider start time preserves valid facts and a planning reply cannot publish an unresearched route',async()=>{
@@ -366,7 +366,7 @@ test('failed guide revision keeps the complete old guide and states that no upda
 test('the explicit preference interview entry asks missing fields without rebuilding an existing route',async()=>{
   const currentPlan=savedAdvisorTrip(),stub=provider([{intent:'plan',reply:'继续补充偏好。'}]);
   const result=await chatTravel({description:'我想补全旅行偏好。请继续了解我，每次只问2到3个还没确认的问题，已确认的不重复问；先保留已有路线，不要重新生成行程。',profile:currentPlan.profile,currentPlan,mode:'ai',textRevision:true},{...stub,advisorEnabled:true});
-  assert.equal(result.kind,'clarify');assert.deepEqual(result.followUps.map(item=>item.field),['companions','crowdPreference','interests']);assert.deepEqual(result.profile.fields,currentPlan.profile.fields);assert.equal(result.stops,undefined);assert.equal(stub.calls.length,1);
+  assert.equal(result.kind,'clarify');assert.deepEqual(result.followUps.map(item=>item.field),['travelDates']);assert.equal(result.profile.interview.status,'active');assert.deepEqual(result.profile.fields,currentPlan.profile.fields);assert.equal(result.stops,undefined);assert.equal(stub.calls.length,0);
 });
 
 test('the full guide entry updates content while a simultaneous explicit dietary fact stays saved',async()=>{
@@ -378,9 +378,9 @@ test('the full guide entry updates content while a simultaneous explicit dietary
   }
 });
 
-test('a complete preference profile gets an open improvement question and invalid model follow-up fields are ignored',async()=>{
+test('a complete preference profile reaches the explicit planning confirmation without a model call',async()=>{
   const currentPlan=savedAdvisorTrip();for(const [field,value] of Object.entries({companions:{count:2},budget:{amount:500,scope:'per-person',period:'trip'},interests:['建筑'],requiredPlaces:[],excludedPlaces:[],crowdPreference:'mixed',diet:{preferences:['粤菜'],restrictions:[]},stayArea:'未定',startArea:'未定',transport:'mixed',travelDates:{start:null,end:null}}))currentPlan.profile.fields[field]={value,status:'confirmed'};
   const stub=provider([{intent:'clarify',reply:'继续了解。',followUp:{field:'unknownField',question:'模型错误字段'}}]);
   const result=await chatTravel({description:'我想补全旅行偏好，请继续了解我，保留已有路线。',profile:currentPlan.profile,currentPlan,mode:'ai',textRevision:true},{...stub,advisorEnabled:true});
-  assert.equal(result.kind,'clarify');assert.equal(result.followUps.length,1);assert.equal(result.followUps[0].field,'interests');assert.match(result.assistantReply,/都已确认|最想改/);assert.equal(result.stops,undefined);assert.equal(stub.calls.length,1);
+  assert.equal(result.kind,'clarify');assert.equal(result.followUps.length,0);assert.equal(result.profile.interview.status,'ready');assert.match(result.assistantReply,/继续补充或修改.*生成或更新攻略/s);assert.equal(result.stops,undefined);assert.equal(stub.calls.length,0);
 });

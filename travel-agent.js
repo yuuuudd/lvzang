@@ -6,6 +6,7 @@ import {applyItineraryEdit,isSuggestedItineraryId,reconcileGuide} from './public
 import {detectTravelDayEdit,applyTravelDayEdit,reconcileDayOverrides} from './public/src/travel-day-edit.js';
 import {askTravelAdvisor,enrichTravelPlan,validateTravelGuide} from './travel-advisor.js';
 import {getExplorationLandmark} from './public/src/travel-map-exploration.js';
+import {handleTravelInterview,preserveTravelInterview} from './travel-interview.js';
 
 function parseModelObject(content){
   const text=content.trim();let value;
@@ -232,6 +233,7 @@ async function chatTravelWithProfile(body,options){
   const settingsUpdate=Object.hasOwn(body,'tripSettings')?applyTravelSettings(previous,body.tripSettings):null;
   let decision,dialogueResearch;
   if(settingsUpdate)decision={intent:'plan',reply:'已收到你修改的旅行时间与强度。'};
+  else if(body.interviewAction==='plan')decision={intent:'plan',reply:'已确认问答条件，开始整理有来源的攻略。'};
   else if(mode==='ai'){
     if(!options.key?.trim())throw new Error('尚未配置 DeepSeek；请选择本地示范模式。');
     const dialogueData={description:text,selectedDestination:body.destination,manualDestination:body.textRevision===false,previous:body.previous,notes:original.notes,...context,...(options.advisorEnabled&&body.currentPlan?.guide?{currentGuide:guideConversationContext(body.currentPlan.guide)}:{})};
@@ -245,7 +247,7 @@ async function chatTravelWithProfile(body,options){
   const contentCommand=savedTrip&&!settingsUpdate&&(restartInterview||guideRevision||purelyVagueFeedback(text));
   const commandFacts=contentCommand?guideCommandFacts(text):'';
   const allowDefaults=body.allowDefaults===true||/按默认|默认安排|先出.*(?:方案|草案)|先给.*(?:方案|行程|路线|建议)|先安排|你决定|你来定|随便推荐|不用问|直接安排/.test(text);
-  const ordinaryQuestion=!settingsUpdate&&!contentCommand&&informationQuestion(text),explicitQuestionFacts=options.advisorEnabled&&ordinaryQuestion?questionFacts(text):'',patch=ordinaryQuestion||settingsUpdate||contentCommand?{}:groundedProfilePatch(decision,text,previous);
+  const ordinaryQuestion=!settingsUpdate&&!contentCommand&&(informationQuestion(text)||body.interviewAction!=='plan'&&['active','ready'].includes(previous.interview?.status)),explicitQuestionFacts=options.advisorEnabled&&ordinaryQuestion?questionFacts(text):'',patch=ordinaryQuestion||settingsUpdate||contentCommand?{}:groundedProfilePatch(decision,text,previous);
   // A requested draft authorizes tentative defaults in the same revision as this turn's facts.
   let mergeText=allowDefaults?`${text}\n按默认`:text;
   const selectedCity=ordinaryQuestion||settingsUpdate||contentCommand?null:manualDestinationForTurn(body,mergeText,previous,patch);
@@ -256,6 +258,12 @@ async function chatTravelWithProfile(body,options){
   }
   const updated=settingsUpdate??(contentCommand?(commandFacts?updateTravelProfile(previous,{text:commandFacts,patch:groundedProfilePatch(decision,commandFacts,previous)}):{profile:previous,changed:false,changes:[]}):ordinaryQuestion?(explicitQuestionFacts?updateTravelProfile(previous,{text:explicitQuestionFacts,patch:groundedProfilePatch(decision,explicitQuestionFacts,previous)}):{profile:previous,changed:false,changes:[]}):updateTravelProfile(previous,{text:mergeText,patch,destination:body.textRevision===false?body.destination:undefined,hours:body.textRevision===false?body.hours:undefined}));
   let profile=updated.profile;
+  // The questionnaire updates the profile over several turns while leaving the
+  // accepted plan untouched. Compare against that plan when planning is approved.
+  if(body.interviewAction==='plan'&&body.currentPlan){
+    updated.changes=Object.keys(profile.fields).filter(field=>JSON.stringify(profile.fields[field])!==JSON.stringify(body.currentPlan.profile?.fields?.[field]));
+    updated.changed=updated.changes.length>0;
+  }
   const clarify=(questions,reason='')=>{
     profile={...profile,followUps:questions.slice(0,options.advisorEnabled?3:2)};
     if(updated.changed||JSON.stringify(previous.followUps)!==JSON.stringify(profile.followUps))emit({type:'profile',profile});
@@ -285,7 +293,7 @@ async function chatTravelWithProfile(body,options){
     return {kind:'answer',status:'answered',assistantReply:short(decision.reply,1800),profile:updated.changed?profile:previous,mode,trace,...(dialogueResearch?{research:dialogueResearch,sourceIds:decision.sourceIds||[]}:{} )};
   }
   const continuingTrip=body.currentPlan?.city===profileValue(profile,'destination')&&Array.isArray(body.currentPlan?.stops);
-  const followUps=travelFollowUps(profile,{allowDefaults,detailed:mode==='ai'&&options.advisorEnabled===true&&!settingsUpdate&&(!continuingTrip||restartInterview)});
+  const followUps=travelFollowUps(profile,{allowDefaults,detailed:mode==='ai'&&options.advisorEnabled===true&&!settingsUpdate&&profile.interview?.status!=='completed'&&(!continuingTrip||restartInterview)});
   if(followUps.length)return clarify(followUps);
   profile={...profile,followUps:[]};
   const input=travelProfileInput(profile,allowDefaults&&profile.fields.dailyHours.status==='missing'?{...original,hours:8}:original);input.description=text;
@@ -408,15 +416,28 @@ async function chatTravelWithProfile(body,options){
 }
 export async function chatTravel(body,options={}){
   if(!body||typeof body!=='object'||Array.isArray(body)||typeof body.description!=='string'||body.description.length>2000)throw new Error('对话内容格式无效或过长');
+  const priorInterviewProfile=body.profile;
+  if(Object.hasOwn(body,'profile')&&!Object.hasOwn(body,'tripSettings')&&!Object.hasOwn(body,'itineraryEdit')&&(!body.currentPlan||!detectTravelDayEdit(body.description))&&(!requestedGuideRevision(body.description)||body.interviewAction)){
+    const interview=handleTravelInterview(body);
+    if(interview?.response){options.onProgress?.({type:'profile',profile:interview.response.profile});return interview.response;}
+    if(interview?.body)body={...interview.body,interviewAction:'plan'};
+  }
   if(Object.hasOwn(body,'itineraryEdit')){
     if(!Object.hasOwn(body,'profile')||Object.hasOwn(body,'tripSettings'))throw new Error('请一次提交一种明确的行程调整');
-    const plan=applyItineraryEdit(body,body.itineraryEdit);options.onProgress?.({type:'stage',role:'总控 Agent',status:'complete',detail:'已校验明确选择的地点与每日安排'});return plan;
+    const plan=applyItineraryEdit(body,body.itineraryEdit);options.onProgress?.({type:'stage',role:'总控 Agent',status:'complete',detail:'已校验明确选择的地点与每日安排'});return preserveTravelInterview(plan,body.profile);
   }
   if(Object.hasOwn(body,'profile')){
     const detailEdit=options.advisorEnabled===true&&body.mode==='ai'&&body.currentPlan&&requestedGuideRevision(body.description);
     const dayEdit=!Object.hasOwn(body,'tripSettings')&&!detailEdit?detectTravelDayEdit(body.description):null;
-    if(dayEdit){const result=applyTravelDayEdit(body,dayEdit);options.onProgress?.({type:'stage',role:'总控 Agent',status:result.kind==='plan'?'complete':'error',detail:result.kind==='plan'?`仅调整第${dayEdit.dayIndex}天，保留其他日期与全程需求`:result.assistantReply});return result;}
-    return chatTravelWithProfile(body,options);
+    if(dayEdit){const result=applyTravelDayEdit(body,dayEdit);options.onProgress?.({type:'stage',role:'总控 Agent',status:result.kind==='plan'?'complete':'error',detail:result.kind==='plan'?`仅调整第${dayEdit.dayIndex}天，保留其他日期与全程需求`:result.assistantReply});return preserveTravelInterview(result,body.profile);}
+    let result;
+    try{result=await chatTravelWithProfile(body,options);}catch(error){if(body.interviewAction==='plan'&&priorInterviewProfile?.interview)options.onProgress?.({type:'profile',profile:normalizeTravelProfile(priorInterviewProfile)});throw error;}
+    if(body.interviewAction==='plan'&&result.kind!=='plan'&&result.profile){
+      const pending=result.followUps?.[0]??result.profile.followUps?.[0];
+      result.profile=normalizeTravelProfile({...result.profile,interview:{...result.profile.interview,status:pending?'active':'ready',topic:pending?.field??null,skipped:result.profile.interview.skipped.filter(field=>field!==pending?.field)},followUps:pending?[pending]:[]});
+      result.followUps=result.profile.followUps;
+    }
+    return Object.hasOwn(body,'tripSettings')||detailEdit?preserveTravelInterview(result,body.profile):result;
   }
   const context=conversationContext(body),emit=e=>options.onProgress?.(e);
   // Questions may mention a stop duration that is not the itinerary duration.

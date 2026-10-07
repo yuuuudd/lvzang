@@ -34,7 +34,7 @@ try{
   await page.evaluate(value=>{localStorage.setItem('lvzang.v1',JSON.stringify(value));localStorage.setItem('lvzang.chat.v1',JSON.stringify([{role:'user',content:'广州三天，每天6小时'}]));},saved);
   await page.reload();assert.equal(await page.locator('#trip-day-count').inputValue(),'3');assert.equal(await page.locator('#trip-daily-hours').inputValue(),'6');assert.equal(await page.locator('#trip-pace').inputValue(),'normal');
   const bytes=()=>page.evaluate(()=>({state:localStorage.getItem('lvzang.v1'),chat:localStorage.getItem('lvzang.chat.v1')})),state=async()=>JSON.parse((await bytes()).state);
-  const openSettings=async()=>{if(!await page.locator('#trip-settings-disclosure').evaluate(node=>node.open))await page.locator('#trip-settings-disclosure > summary').click();};
+  const openSettings=async()=>{if(await page.locator('#planner-tools-content').isHidden())await page.locator('#planner-tools-toggle').click();if(!await page.locator('#trip-settings-disclosure').evaluate(node=>node.open))await page.locator('#trip-settings-disclosure > summary').click();};
   const apply=async(values)=>{await openSettings();if(values.dayCount!==undefined)await page.locator('#trip-day-count').fill(String(values.dayCount));if(values.dailyHours!==undefined)await page.locator('#trip-daily-hours').fill(String(values.dailyHours));if(values.pace!==undefined)await page.locator('#trip-pace').selectOption(values.pace);await page.getByRole('button',{name:'应用并调整行程',exact:true}).click();await page.waitForFunction(()=>!document.getElementById('plan-button').disabled);};
   const unchanged=await bytes();await apply({});assert.equal(requests.length,0);assert.deepEqual(await bytes(),unchanged);
   await page.locator('#travel-brief').fill('这段还没发送的想法保留');

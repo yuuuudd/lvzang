@@ -4,6 +4,7 @@ import {places} from './travel-catalog.js';
 const legacyFieldNames=['destination','dayCount','dailyHours','startTime','companions','budget','interests','pace','requiredPlaces','excludedPlaces'];
 const detailFieldNames=['crowdPreference','diet','stayArea','startArea','transport','travelDates'];
 const fieldNames=[...legacyFieldNames,...detailFieldNames];
+export const TRAVEL_INTERVIEW_TOPICS=Object.freeze(['destination','travelDates','dayCount','dailyHours','startTime','companions','budget','crowdPreference','interests','requiredPlaces','excludedPlaces','pace','diet','stayArea','startArea','transport']);
 const statuses=['confirmed','tentative','missing'];
 const own=(value,key)=>Object.prototype.hasOwnProperty.call(value,key);
 const object=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
@@ -91,7 +92,7 @@ export function emptyTravelProfile(){
 
 export function normalizeTravelProfile(value){
   if(!object(value)||value.version!==1||!Number.isInteger(value.revision)||value.revision<0||value.revision>1000000||!object(value.fields))throw new Error('旅行需求档案格式无效');
-  for(const key of Object.keys(value))if(!['version','revision','fields','followUps'].includes(key))throw new Error('旅行需求档案字段无效');
+  for(const key of Object.keys(value))if(!['version','revision','fields','followUps','interview'].includes(key))throw new Error('旅行需求档案字段无效');
   for(const field of Object.keys(value.fields))if(!fieldNames.includes(field))throw new Error('旅行需求档案字段无效');
   const result=emptyTravelProfile();result.revision=value.revision;
   for(const field of fieldNames){if(!own(value.fields,field)){if(legacyFieldNames.includes(field))throw new Error('旅行需求档案缺少字段');continue;}result.fields[field]=normalizeField(field,value.fields[field]);}
@@ -102,6 +103,14 @@ export function normalizeTravelProfile(value){
     const question=boundedText(item.question,240,'旅行追问');if(!question)throw new Error('旅行追问不能为空');
     return {field:item.field,question};
   });
+  if(own(value,'interview')){
+    const state=value.interview;
+    if(!object(state)||Object.keys(state).some(key=>!['status','topic','skipped','step','total'].includes(key))||!['active','ready','completed','paused'].includes(state.status)||!(state.topic===null||TRAVEL_INTERVIEW_TOPICS.includes(state.topic))||!Array.isArray(state.skipped)||state.skipped.length>TRAVEL_INTERVIEW_TOPICS.length||state.skipped.some(field=>!TRAVEL_INTERVIEW_TOPICS.includes(field)))throw new Error('旅行问答进度格式无效');
+    if(state.status==='active'&&state.topic===null)throw new Error('进行中的旅行问答缺少当前主题');
+    result.interview={status:state.status,topic:state.topic,skipped:[...new Set(state.skipped)],step:state.topic===null?TRAVEL_INTERVIEW_TOPICS.length:TRAVEL_INTERVIEW_TOPICS.indexOf(state.topic)+1,total:TRAVEL_INTERVIEW_TOPICS.length};
+    if(state.status==='active')result.followUps=result.followUps.filter(item=>item.field===state.topic).slice(0,1);
+    else if(['ready','paused'].includes(state.status))result.followUps=[];
+  }
   return result;
 }
 
@@ -324,7 +333,7 @@ export function updateTravelProfile(previous,{text='',patch={},destination,hours
   }
   const changes=fieldNames.filter(field=>!same(original.fields[field],profile.fields[field]));
   if(changes.length)profile.revision=original.revision+1;
-  profile.followUps=travelFollowUps(profile,{allowDefaults});
+  profile.followUps=profile.interview&&profile.interview.status!=='completed'?original.followUps:travelFollowUps(profile,{allowDefaults});
   return {profile:normalizeTravelProfile(profile),changed:changes.length>0,changes};
 }
 
@@ -342,7 +351,7 @@ export function applyTravelSettings(previous,settings){
     if(!same(original.fields[field],next)){profile.fields[field]=next;changes.push(field);}
   }
   if(changes.length)profile.revision=original.revision+1;
-  profile.followUps=travelFollowUps(profile);
+  profile.followUps=profile.interview&&profile.interview.status!=='completed'?original.followUps:travelFollowUps(profile);
   return {profile:normalizeTravelProfile(profile),changed:changes.length>0,changes};
 }
 

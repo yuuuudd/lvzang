@@ -18,7 +18,7 @@ try{
  await page.evaluate(value=>localStorage.setItem('lvzang.v1',JSON.stringify(value)),saved);await page.reload();
  const state=()=>page.evaluate(()=>JSON.parse(localStorage.getItem('lvzang.v1'))),submit=async text=>{await page.locator('#travel-brief').fill(text);await page.getByRole('button',{name:'发送消息',exact:true}).click();await page.waitForFunction(()=>!document.getElementById('plan-button').disabled);};
  const mode=async value=>{await page.locator('.plan-options summary').click();await page.locator('#agent-mode').selectOption(value);await page.locator('.plan-options summary').click();};
- const openSettings=async()=>{if(!await page.locator('#trip-settings-disclosure').evaluate(node=>node.open))await page.locator('#trip-settings-disclosure > summary').click();};
+ const openSettings=async()=>{if(await page.locator('#planner-tools-content').isHidden())await page.locator('#planner-tools-toggle').click();if(!await page.locator('#trip-settings-disclosure').evaluate(node=>node.open))await page.locator('#trip-settings-disclosure > summary').click();};
  await mode('ai');await submit('第2天只玩2小时，下午14:00出发，轻松一点');
  const edited=(await state()).plan;assert.equal(edited.days[1].hours,2);assert.equal(edited.days[1].pace,'easy');assert.deepEqual(edited.dayOverrides,{'2':{hours:2,pace:'easy',startTime:'14:00'}});assert.equal(edited.mode,'ai');
  assert.equal(JSON.stringify(edited.days[0]),JSON.stringify(plan.days[0]));assert.equal(JSON.stringify(edited.days[2]),JSON.stringify(plan.days[2]));assert.deepEqual((await state()).profile,profile);assert.equal((await state()).profile.fields.dayCount.value,3);

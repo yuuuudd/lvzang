@@ -15,6 +15,16 @@ let state=initialState(),current=null,previews=[],dialogPreview=null,shared=null
 const currentIdentityKey=()=>accountInfo.enabled?(accountInfo.user?.id||'guest'):'local';
 let loadedIdentityKey=currentIdentityKey();
 let controller=null,routePreviews=[],resetPrevious=false,destinationTouched=false,history=[],activeDay=0;
+const travelUiKey='lvzang.travel-ui.v1';let toolsPreference=null;
+try{const savedUi=JSON.parse(localStorage.getItem(travelUiKey)||'null');if(typeof savedUi?.toolsCollapsed==='boolean')toolsPreference=savedUi.toolsCollapsed;}catch{}
+function setToolsCollapsed(collapsed,save=false){
+  $('planner-tools-content').hidden=collapsed;$('planner-tools-toggle').setAttribute('aria-expanded',String(!collapsed));
+  $('planner-tools-toggle').textContent=collapsed?'旅行顾问 · 展开设置':'旅行顾问 · 收起设置';
+  if(save){toolsPreference=collapsed;try{localStorage.setItem(travelUiKey,JSON.stringify({toolsCollapsed:collapsed}));}catch{}}
+}
+function makeRoomForChat(){if(toolsPreference!==false)setToolsCollapsed(true);}
+$('planner-tools-toggle').onclick=()=>setToolsCollapsed(!$('planner-tools-content').hidden,true);
+setToolsCollapsed(toolsPreference===true);
 const sampleInput=normalizeRequest({description:'广州半天，预算300元，喜欢文化建筑和拍照',startTime:'13:00'});
 const samplePlan={...planFromCatalog(sampleInput,undefined,{placeIds:['gz-museum','gz-square','gz-tower'],title:'广州 · 珠江两岸漫游'}),mode:'demo',trace:[],assistantReply:'这是广州珠江两岸的路线示例，你可以继续提出要求。'};
 const displayedPlan=()=>state.plan||samplePlan;
@@ -70,19 +80,39 @@ let modeTouched=false;
 function modeNote(){$('mode-note').textContent=$('agent-mode').value==='ai'?'DeepSeek 对话 · Agent 将旅行需求整合到右侧方案。':'本地示范 · 三城路线示例；开放问答请切换 AI。';}
 $('agent-mode').onchange=()=>{modeTouched=true;modeNote();};
 const advisorPrompts={
-  preferences:'我想补全旅行偏好。请继续了解我，每次只问2到3个还没确认的问题，已确认的不重复问；先保留已有路线，不要重新生成行程。',
   guide:'请沿用当前已确认的路线、日期和地点顺序，补充详细攻略：每站怎么玩、附近吃什么、交通与预约提醒、雨天备选，并给出资料来源。不要更换景点或重新安排路线。'
 };
+const interviewPrompts={
+  start:'开始完整旅行偏好问答，请一次问我一个问题，先保留当前路线。',
+  resume:'继续完整旅行问答，从上次的问题接着聊，先保留当前路线。',
+  skip:'这题先跳过，暂时还没决定，请继续问下一题。',
+  pause:'先暂停完整旅行问答，保留已经记录的条件和当前路线。',
+  plan:'问答完成，请按这些条件规划行程。'
+};
+function renderInterview(){
+  const interview=state.profile.interview,phase=interview?.status;
+  const present=['active','ready','paused'].includes(phase);
+  $('advisor-preferences').textContent=present?'继续问答':'开始完整问答';
+  $('interview-controls').hidden=!present;
+  if(!present)return;
+  const progress=Number.isFinite(interview.step)&&Number.isFinite(interview.total)?` · ${interview.step} / ${interview.total}`:'';
+  $('interview-progress').textContent=(phase==='paused'?'问答已暂停':phase==='ready'?'问答已完成，确认后开始规划':'完整旅行问答')+progress+' · 随时补充或修改想法';
+  $('interview-skip').hidden=phase!=='active';$('interview-pause').hidden=phase==='paused';
+  $('interview-resume').hidden=phase!=='paused';$('interview-plan').hidden=phase!=='ready';
+  document.querySelectorAll('.interview-actions button').forEach(button=>button.disabled=busy);
+}
 function renderAdvisorEntry(){
   const accepted=Boolean(state.plan&&!resetPrevious);
-  $('advisor-context').textContent=accepted?state.plan.guide?'沿用已保存的方案，你可以继续提问，也可以直接说哪里不满意。':'当前保留的是之前方案。可补充详细攻略，也可以告诉我哪里不满意。':resetPrevious?'正在了解这次新旅行。说说想法，我会逐步记住你的偏好。':'先聊想去哪、想怎么玩。我会记住偏好，也可以随时说哪里不满意。';
+  $('advisor-context').textContent=accepted?state.plan.guide?'沿用已保存的方案，随时补充或修改想法，也可以直接说哪里不满意。':'当前保留的是之前方案。可补充详细攻略，也可随时补充或修改想法。':resetPrevious?'正在了解这次新旅行。说说想法，我会逐步记住你的偏好。':'可以从完整问答开始，一次聊一题，随时补充或修改想法。';
   document.querySelectorAll('[data-advisor-action]').forEach(button=>button.disabled=busy);
   $('advisor-guide').disabled=busy||!accepted;
   $('advisor-guide').title=accepted?'沿用已确认的路线，补充玩法、餐饮和提醒':'先聊出一份自己的路线，再补充详细攻略';
+  renderInterview();
 }
 function focusAdvisor(){
   if(busy)return false;
   modeTouched=true;$('agent-mode').value='ai';modeNote();
+  makeRoomForChat();
   $('travel-brief').scrollIntoView({block:'center',behavior:'instant'});$('travel-brief').focus({preventScroll:true});return true;
 }
 function sendAdvisorPrompt(action,description=advisorPrompts[action]){
@@ -92,8 +122,17 @@ function sendAdvisorPrompt(action,description=advisorPrompts[action]){
   // This internal marker keeps the draft intact; the server receives only the explicit natural-language request.
   return runPlan(true,{advisorAction:action,description});
 }
+function requestInterview(action){
+  if(busy||!interviewPrompts[action])return Promise.resolve(false);
+  focusAdvisor();
+  return runPlan(true,{advisorAction:'interview',interviewAction:action,description:interviewPrompts[action]});
+}
 $('advisor-continue').onclick=()=>focusAdvisor();
-$('advisor-preferences').onclick=()=>sendAdvisorPrompt('preferences');
+$('advisor-preferences').onclick=()=>requestInterview(['active','ready','paused'].includes(state.profile.interview?.status)?'resume':'start');
+$('interview-skip').onclick=()=>requestInterview('skip');
+$('interview-pause').onclick=()=>requestInterview('pause');
+$('interview-resume').onclick=()=>requestInterview('resume');
+$('interview-plan').onclick=()=>requestInterview('plan');
 $('advisor-guide').onclick=()=>sendAdvisorPrompt('guide');
 $('advisor-feedback').onclick=()=>{if(busy)return;if(!$('travel-brief').value.trim()){$('travel-brief').value='这份攻略我想改善：';textRevision=true;}focusAdvisor();};
 $('travel-brief').addEventListener('input',()=>textRevision=true);
@@ -156,6 +195,7 @@ function releasePlanningControls(){
 }
 async function runPlan(usePrevious=true,settingsSubmission=null){
   if(busy)return false;busy=true;
+  if(!settingsSubmission||settingsSubmission.advisorAction)makeRoomForChat();
   renderAdvisorEntry();
   document.querySelectorAll('[data-remove-stop]').forEach(button=>button.disabled=true);
   // Capture this explicit submission, then load the chosen identity before taking any saved context.
@@ -170,7 +210,7 @@ async function runPlan(usePrevious=true,settingsSubmission=null){
   $('cancel-plan').hidden=false;
   const before=displayedPlan(),beforeProfile=state.profile,beforePlan=state.plan,beforeDay=activeDay,beforeReset=state.planningReset,ai=Boolean(settingsSubmission?.advisorAction)||(!settingsSubmission&&$('agent-mode').value==='ai');
   $('day-selector').querySelectorAll('button').forEach(button=>button.disabled=true);
-  const body={description:turnDraft.description,destination:settingsSubmission?'':turnDraft.destination,hours:settingsSubmission?undefined:turnDraft.hours,textRevision:settingsSubmission?true:turnDraft.textRevision,...(settingsSubmission?.tripSettings?{tripSettings:settingsSubmission.tripSettings}:{}),...(settingsSubmission?.itineraryEdit?{itineraryEdit:settingsSubmission.itineraryEdit}:{}),mode:turnDraft.mode,profile:usePrevious?state.profile:emptyTravelProfile(),notes:state.notes,previous:usePrevious&&!resetPrevious&&state.plan?before.input:undefined,currentPlan:usePrevious&&!resetPrevious&&state.plan?before:undefined,history:history.slice()};
+  const body={description:turnDraft.description,destination:settingsSubmission?'':turnDraft.destination,hours:settingsSubmission?undefined:turnDraft.hours,textRevision:settingsSubmission?true:turnDraft.textRevision,...(settingsSubmission?.tripSettings?{tripSettings:settingsSubmission.tripSettings}:{}),...(settingsSubmission?.itineraryEdit?{itineraryEdit:settingsSubmission.itineraryEdit}:{}),...(settingsSubmission?.interviewAction?{interviewAction:settingsSubmission.interviewAction}:{}),mode:turnDraft.mode,profile:usePrevious?state.profile:emptyTravelProfile(),notes:state.notes,previous:usePrevious&&!resetPrevious&&state.plan?before.input:undefined,currentPlan:usePrevious&&!resetPrevious&&state.plan?before:undefined,history:history.slice()};
   remember('user',body.description);
   chatMessage('user',body.description.trim()||`请推荐${body.destination||'一条旅行'}路线`,new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}));
   const reply=chatMessage('assistant','已收到，正在理解你的问题…',settingsSubmission?.advisorAction?'DeepSeek 旅行顾问':settingsSubmission?.itineraryEdit?'调整行程地点':settingsSubmission?'调整旅行条件':ai?'DeepSeek 对话':'本地规则示范');reply.classList.add('pending');
