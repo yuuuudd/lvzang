@@ -12,7 +12,53 @@ let externalCalls=0;
 const server=createApp({accountsEnabled:false,key:'fixture',amapJsKey:'',amapSecurityJsCode:'',fetchImpl:async()=>{externalCalls++;throw Error('Interview must not require a model for plain answers');}});
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const root=`http://127.0.0.1:${server.address().port}`,browser=await chromium.launch({channel:'chrome',headless:true});
+async function verifyIncrementalAnswers(){
+ const page=await browser.newPage({viewport:{width:1440,height:844},reducedMotion:'reduce'}),requests=[],errors=[];
+ page.on('pageerror',error=>errors.push(error.message));
+ page.on('request',request=>{if(request.url().endsWith('/api/travel-chat/stream'))requests.push(request.postDataJSON());});
+ try{
+  await page.goto(root+'/travel.html');
+  await page.evaluate(saved=>localStorage.setItem('lvzang.v1',saved),JSON.stringify({...initialState(),profile,plan}));
+  await page.reload();
+  const state=()=>page.evaluate(()=>JSON.parse(localStorage.getItem('lvzang.v1')));
+  const clickSend=async text=>{await page.locator('#travel-brief').fill(text);const response=page.waitForResponse(response=>response.url().endsWith('/api/travel-chat/stream'));await page.getByRole('button',{name:'发送消息',exact:true}).click();await response;await page.waitForFunction(()=>!document.getElementById('plan-button').disabled);};
+  await page.locator('#advisor-preferences').click();await page.waitForFunction(()=>!document.getElementById('plan-button').disabled);
+  assert.equal((await state()).profile.interview.topic,'travelDates');
+  await clickSend('3天');
+  let current=await state();
+  assert.equal(current.profile.fields.dayCount.value,3);
+  assert.equal(current.profile.fields.dayCount.status,'confirmed');
+  assert.equal(current.profile.fields.travelDates.value,null,'A duration answer must not fabricate calendar dates');
+  assert.equal(current.profile.fields.travelDates.status,'missing');
+  assert.equal(current.profile.interview.topic,'startTime','Repeating the accepted duration at the date question advances to the next unconfirmed topic');
+  assert.ok(current.profile.interview.skipped.includes('travelDates'));
+  assert.deepEqual(current.plan,plan,'Clarifying dates and duration preserves the accepted route');
+  await clickSend('每天早上9点开始');assert.equal((await state()).profile.interview.topic,'companions');
+  await clickSend('2个成年人，没有老人小孩');assert.equal((await state()).profile.interview.topic,'budget');
+  await clickSend('500');current=await state();
+  assert.equal(current.profile.fields.budget.value.amount,500);
+  assert.equal(current.profile.fields.budget.value.scope,'unknown');assert.equal(current.profile.fields.budget.value.period,'unknown');
+  assert.equal(current.profile.interview.topic,'budget','A partial budget answer keeps the budget topic until its scope is clear');
+  const budgetReply=await page.locator('.chat-message.assistant .message-content').last().textContent();
+  assert.match(budgetReply,/500/,'The reply explicitly acknowledges the amount already received');
+  assert.match(budgetReply,/每人.*全团/);assert.match(budgetReply,/全程.*每天/);
+  await clickSend('每人全程');current=await state();
+  assert.equal(current.profile.fields.budget.value.amount,500);assert.equal(current.profile.fields.budget.value.scope,'per-person');assert.equal(current.profile.fields.budget.value.period,'trip');
+  assert.equal(current.profile.interview.topic,'crowdPreference');assert.deepEqual(current.plan,plan);
+  const bytes=()=>page.evaluate(()=>({state:localStorage.getItem('lvzang.v1'),history:localStorage.getItem('lvzang.chat.v1')}));
+  const beforeBlank=await bytes(),requestCount=requests.length,messageCount=await page.locator('.chat-message').count();
+  await page.locator('#travel-brief').fill('   ');await page.getByRole('button',{name:'发送消息',exact:true}).click();await page.waitForFunction(()=>!document.getElementById('plan-button').disabled);
+  assert.equal(requests.length,requestCount,'An empty click submits no HTTP request');
+  assert.deepEqual(await bytes(),beforeBlank,'An empty click preserves the exact interview and history bytes');
+  assert.equal(await page.locator('.chat-message').count(),messageCount,'An empty click adds no visible user or assistant message');
+  const input=await page.locator('#travel-brief').evaluate(element=>({focused:element===document.activeElement,validationMessage:element.validationMessage}));
+  assert.equal(input.focused,true,'The empty composer receives focus for correction');
+  assert.match(input.validationMessage+' '+await page.locator('#plan-status').textContent(),/输入|填写|内容/,'The input receives an actionable empty-message hint');
+  assert.deepEqual(errors,[]);
+ }finally{await page.close();}
+}
 try{
+ await verifyIncrementalAnswers();
  const page=await browser.newPage({viewport:{width:1440,height:844},reducedMotion:'reduce'}),errors=[],requests=[];
  page.on('pageerror',error=>errors.push(error.message));
  page.on('request',request=>{if(request.url().endsWith('/api/travel-chat/stream'))requests.push(request.postDataJSON());});
@@ -108,5 +154,5 @@ try{
  await unavailable.locator('#planner-tools-toggle').click();assert.equal(await unavailable.locator('#planner-tools-content').isVisible(),false);
  await unavailable.locator('#planner-tools-toggle').click();assert.equal(await unavailable.locator('#planner-tools-content').isVisible(),true);
  assert.deepEqual(errors,[]);
- console.log('PASS: full real-HTTP interview, single-topic progression, skip/pause/resume/reload, route and draft preservation, explicit plan handoff, collapsible complete header across 390/580/1440px and blocked UI storage.');
+ console.log('PASS: real HTTP click-send duration-at-date advancement without invented dates, acknowledged partial budget then scope completion, empty-submit no request/history/progress changes; full interview, skip/pause/resume/reload, route and draft preservation, explicit plan handoff, responsive collapsed header and blocked UI storage.');
 }finally{await browser.close();await new Promise(resolve=>server.close(resolve));}

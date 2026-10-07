@@ -92,6 +92,7 @@ const interviewPrompts={
 function renderInterview(){
   const interview=state.profile.interview,phase=interview?.status;
   const present=['active','ready','paused'].includes(phase);
+  $('travel-brief').placeholder=phase==='active'&&interview.topic==='budget'?'例如：每人全程1000元，或“不限预算”':phase==='active'&&interview.topic==='travelDates'?'填写具体出游日期，尚未确定可先跳过':'直接回答就好，一次回答一个也可以';
   $('advisor-preferences').textContent=present?'继续问答':'开始完整问答';
   $('interview-controls').hidden=!present;
   if(!present)return;
@@ -194,7 +195,12 @@ function releasePlanningControls(){
   renderAdvisorEntry();
 }
 async function runPlan(usePrevious=true,settingsSubmission=null){
-  if(busy)return false;busy=true;
+  if(busy)return false;
+  if(!settingsSubmission&&['active','ready','paused'].includes(state.profile.interview?.status)&&!$('travel-brief').value.trim()){
+    status(state.profile.interview.status==='active'?'请先输入这题的回答；暂时没确定，可以点“这题先跳过”。':'请先输入想补充的内容，或使用上方的问答操作。');
+    $('travel-brief').focus();return false;
+  }
+  busy=true;
   if(!settingsSubmission||settingsSubmission.advisorAction)makeRoomForChat();
   renderAdvisorEntry();
   document.querySelectorAll('[data-remove-stop]').forEach(button=>button.disabled=true);

@@ -26,6 +26,31 @@ test('unknown skip, pause and resume retain progress without inventing confirmed
   const needed=await call(result.profile,'开始规划','plan');assert.equal(needed.profile.interview.topic,'destination');assert.match(needed.assistantReply,/必要条件/);assert.equal(needed.stops,undefined);
 });
 
+test('a duration answer to calendar dates acknowledges even the same confirmed duration and defers only dates',async()=>{
+  const profile=updateTravelProfile(emptyTravelProfile(),{text:'广州3天，每天4小时'}).profile;
+  for(const [text,days] of [['3天',3],['玩两天',2]]){
+    const start=await call(profile,'开始完整问答','start');assert.equal(start.profile.interview.topic,'travelDates');
+    const result=await call(start.profile,text);
+    assert.equal(result.profile.fields.dayCount.value,days);assert.equal(result.profile.fields.dayCount.status,'confirmed');
+    assert.deepEqual(result.profile.fields.travelDates,{value:null,status:'missing'});assert.ok(result.profile.interview.skipped.includes('travelDates'));
+    assert.equal(result.profile.interview.topic,'startTime');assert.match(result.assistantReply,new RegExp(`已记下.*${days}天.*具体日期.*待补充`));assert.equal(result.stops,undefined);
+  }
+  const start=await call(profile,'开始完整问答','start');
+  const dated=await call(start.profile,'2026年11月1日到11月3日，玩3天');
+  assert.deepEqual(dated.profile.fields.travelDates.value,{start:'2026-11-01',end:'2026-11-03'});assert.ok(!dated.profile.interview.skipped.includes('travelDates'));
+  const vague=await call(start.profile,'随便看看');assert.equal(vague.profile.interview.topic,'travelDates');assert.ok(!vague.profile.interview.skipped.includes('travelDates'));
+});
+
+test('partial and repeated budget amounts are acknowledged before asking only the missing basis',async()=>{
+  let result=await call(atTopic('budget'),'500');assert.equal(result.profile.interview.topic,'budget');assert.match(result.assistantReply,/已记下预算500元/);assert.match(result.followUps[0].question,/每人还是全团、全程还是每天/);
+  result=await call(result.profile,'500');assert.match(result.assistantReply,/已记下预算500元/);assert.doesNotMatch(result.assistantReply,/没有足够明确/);
+  result=await call(result.profile,'每人');assert.equal(result.profile.interview.topic,'budget');assert.equal(result.profile.fields.budget.value.scope,'per-person');assert.match(result.followUps[0].question,/全程还是每天/);assert.doesNotMatch(result.followUps[0].question,/每人还是全团/);
+  result=await call(result.profile,'全程');assert.equal(result.profile.interview.topic,'crowdPreference');assert.equal(result.profile.fields.budget.value.period,'trip');
+  result=await call(atTopic('budget'),'每人全程');assert.equal(result.profile.interview.topic,'budget');assert.match(result.assistantReply,/已记下.*每人.*全程/);assert.match(result.followUps[0].question,/预算金额/);assert.doesNotMatch(result.followUps[0].question,/每人还是全团|全程还是每天/);
+  result=await call(result.profile,'每人全程');assert.match(result.assistantReply,/已记下.*每人.*全程/);assert.doesNotMatch(result.assistantReply,/没有足够明确/);
+  result=await call(result.profile,'500');assert.equal(result.profile.interview.topic,'crowdPreference');assert.equal(result.profile.fields.budget.value.amount,500);assert.equal(result.profile.fields.budget.value.scope,'per-person');assert.equal(result.profile.fields.budget.value.period,'trip');
+});
+
 test('one response records multiple conditions and corrections while leaving the accepted route intact',async()=>{
   const plan=savedTrip(),snapshot=JSON.stringify(plan);let result=await call(plan.profile,'','start',{currentPlan:plan});
   result=await call(result.profile,'改成广州两天，每天3小时，我们2人，喜欢小众，喜欢建筑，不吃辣',undefined,{currentPlan:plan});

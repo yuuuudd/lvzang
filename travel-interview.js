@@ -2,7 +2,7 @@ import {normalizeTravelProfile,updateTravelProfile,travelProfileSummary,TRAVEL_I
 
 const questions={
   destination:'这次想去哪个城市或目的地？',
-  travelDates:'预计哪天出发、哪天结束？可以写具体日期；还没确定就说“先跳过”。',
+  travelDates:'预计哪年几月几日出发、哪天结束？例如“2026年11月1日到11月3日”。如果只确定玩几天，也可以先说“3天”，具体日期留待补充。',
   dayCount:'这次一共准备玩几天？只玩半天也可以告诉我。',
   dailyHours:'每天大概能安排几小时游览？',
   startTime:'每天大约几点开始游玩？例如早上9点、下午2点半。',
@@ -33,6 +33,7 @@ function complete(profile,field){
 }
 function question(profile,field){
   if(field==='diet'&&profile.fields.diet.value?.restrictions===null)return '饮食口味已记下。还有什么忌口或过敏吗？没有忌口可以直接说。';
+  if(field==='budget'&&profile.fields.budget.value?.amount===null)return '预算金额大概多少元？也可以说“不限预算”。';
   if(field==='budget'&&profile.fields.budget.value?.amount!=null){const value=profile.fields.budget.value;return value.scope==='unknown'&&value.period==='unknown'?'这笔预算是每人还是全团、全程还是每天？':value.scope==='unknown'?'这笔预算是每人还是全团的预算？':'这笔预算是全程还是每天的预算？';}
   return questions[field];
 }
@@ -134,11 +135,25 @@ export function handleTravelInterview(body){
     updated.changed=Object.keys(profile.fields).some(field=>JSON.stringify(profile.fields[field])!==JSON.stringify(updated.profile.fields[field]));
     updated.profile.revision=profile.revision+(updated.changed?1:0);
   }catch(error){return {response:response(profile,body,`这项还没记下：${error.message}。可以换一种说法，或先跳过。`)};}
+  // Travelers commonly answer the calendar question with a trip duration. An
+  // explicit duration is useful even when identical to the saved value; defer
+  // only the still-unknown calendar dates instead of repeating the same question.
+  const durationAnswer=/^(?:(?:我(?:们)?|这次|准备|计划|一共|总共|想|要|玩|游玩|旅行|安排|大概|约|改成|改为)\s*)*[一二两三四五六七八九十\d]+\s*(?:天|日)(?:\s*[一二两三四五六七八九十\d]+\s*(?:晚|夜))?(?:左右|吧|就行|就好)?[。！!\s]*$/.test(text);
+  if(state.status==='active'&&state.topic==='travelDates'&&durationAnswer&&!complete(updated.profile,'travelDates')&&complete(updated.profile,'dayCount')){
+    const next=progress(updated.profile,[...new Set([...state.skipped,'travelDates'])]);
+    return {response:response(next,body,`已记下玩${updated.profile.fields.dayCount.value}天；具体日期先留待补充。`)};
+  }
   if(state.status==='ready'){
     const next=normalizeTravelProfile({...updated.profile,followUps:[],interview:{...state,skipped:state.skipped.filter(field=>!complete(updated.profile,field))}});
     return {response:response(next,body)};
   }
   const next=progress(updated.profile);
+  const budget=updated.profile.fields.budget.value;
+  const budgetAnswer=/^(?:(?:预算|大概|约|是|改为|改成|人均|每人|全团|全程|每天)\s*)*[¥￥]?[零一二两三四五六七八九十百千万\d]+(?:\.\d+)?\s*(?:元|块)?[。！!\s]*$/.test(text)||/^(?:是|按)?(?:(?:人均|每人|全团|全组|全程|整趟|每天|每日)\s*)+[。！!\s]*$/.test(text);
+  if(state.topic==='budget'&&next.interview.topic==='budget'&&budget&&(updated.changes.includes('budget')||budgetAnswer)){
+    const basis=[{'per-person':'每人',group:'全团'}[budget.scope],{trip:'全程',day:'每天'}[budget.period]].filter(Boolean).join('、');
+    return {response:response(next,body,`已记下${budget.amount!=null?`预算${budget.amount}元`:`预算口径：${basis}`}。`)};
+  }
   return {response:response(next,body,updated.changed?'已记下你补充的条件，已回答的项目会自动跳过。':'这一项还没有足够明确的信息。可以直接回答，或说“跳过”。')};
 }
 
