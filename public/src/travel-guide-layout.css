@@ -1,0 +1,25 @@
+#route-section{--guide-font-size:18px;--guide-control-size:14px;--guide-target-size:40px;display:flex;flex-direction:column;max-height:none;z-index:2}
+.map-node{isolation:isolate}
+#route-section>.node-header{flex:none;min-height:var(--guide-target-size)}
+#route-section>.node-header h2{font-size:var(--guide-font-size)}
+.guide-reading-tools{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;padding:0 14px 10px;font-size:var(--guide-control-size)}
+.guide-reading-tools label{display:flex;align-items:center;gap:6px;font-size:inherit}
+.guide-reading-tools select,.guide-reading-tools button{min-height:var(--guide-target-size);padding:5px 8px;border:1px solid var(--line);border-radius:7px;background:var(--surface);font-size:inherit;margin:0}
+.guide-reading-tools select{max-width:110px}
+#route-refresh-slot{flex:none;min-width:0;padding:0 14px}
+#route-section>.itinerary-content{flex:1;min-height:0;max-height:none;overscroll-behavior:contain;font-size:var(--guide-font-size);overflow-wrap:anywhere}
+#route-section .stop-story,#route-section .stop-card details p,#route-section .stop-guide,#route-section .stop-guide h4,#route-section .food-name,#route-section .travel-guide-overview,#route-section .assumption{font-size:var(--guide-font-size);line-height:1.75}
+#route-section .stop-card h3{font-size:var(--guide-font-size);line-height:1.5}
+#route-section .stop-time,#route-section #route-meta,#route-section #route-title,#route-section .route-notes summary,#route-section .research-sources,#route-section .ask-stop-guide,#route-section .stop-actions button,#route-section .stop-actions a,#route-section #revise{font-size:var(--guide-control-size);line-height:1.65}
+#route-section .day-selector button{font-size:var(--guide-control-size);min-height:var(--guide-target-size)}
+.guide-resize-footer{display:flex;flex:none;align-items:center;border-top:1px solid var(--line);background:var(--surface)}
+#guide-resize-handle{display:flex;align-items:center;gap:7px;min-height:var(--guide-target-size);padding:6px 14px;max-width:100%;font-size:var(--guide-control-size);color:var(--muted);cursor:nesw-resize;touch-action:none;user-select:none}
+#guide-resize-handle svg{width:18px;height:18px;flex:none;stroke:currentColor;stroke-width:1.5;fill:none}
+#guide-resize-handle:active{transform:none}
+#route-section.guide-resizing{border-color:#6f9e18;user-select:none}
+@media(max-width:767px){
+ #route-section{width:100%!important;max-width:100%;min-width:0}
+ #route-section>.itinerary-content{overflow:auto}
+ #guide-resize-handle{cursor:ns-resize;min-height:44px}
+ .guide-reading-tools select,.guide-reading-tools button{min-height:44px}
+}

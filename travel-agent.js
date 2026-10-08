@@ -218,7 +218,11 @@ function questionFacts(text){
     // “附近吃什么”, but never turn a hypothetical or the question itself into a fact.
     const boundary=clause.search(/附近|周边|这里|那边|请问|(?:有|吃|喝|玩)?(?:什么|啥)|有哪些|哪里|哪儿|怎么|为什么|是否|多少|几个人|几天/);
     const fact=boundary>0?clause.slice(0,boundary).trim():'';
-    return fact&&!question.test(fact)&&!/(?:如果|假如|要是|假设|例如|比如)/.test(fact)?[fact]:[];
+    if(!fact||question.test(fact)||/(?:如果|假如|要是|假设|例如|比如)/.test(fact))return [];
+    // “去杭州怎么玩？” asks about a possible destination. Cutting off the
+    // question must not manufacture the confirmed declaration “去杭州”.
+    try{if(updateTravelProfile(emptyTravelProfile(),{text:fact}).profile.fields.destination.status==='confirmed')return [];}catch{return [];}
+    return [fact];
   }).join('，');
 }
 function savedPlanResearch(plan,fallback){
@@ -306,7 +310,13 @@ async function chatTravelWithProfile(body,options){
   stage('对话 Agent','working','正在结合已保存需求理解这句话');
   const settingsUpdate=Object.hasOwn(body,'tripSettings')?applyTravelSettings(previous,body.tripSettings):null;
   const savedTrip=options.advisorEnabled===true&&mode==='ai'&&body.currentPlan?.city===profileValue(previous,'destination')&&Array.isArray(body.currentPlan?.stops);
-  const guideRevision=savedTrip&&!settingsUpdate?requestedGuideRevision(text):null;
+  const destinationFacts=questionFacts(text);
+  const turnDestination=savedTrip&&!settingsUpdate?updateTravelProfile({...emptyTravelProfile(),followUps:previous.followUps},{text:destinationFacts}).profile.fields.destination:null;
+  const chosenDestination=turnDestination?.status==='confirmed'?turnDestination.value:savedTrip&&!settingsUpdate?manualDestinationForTurn(body,destinationFacts,previous,{}):null;
+  // Changing cities cannot be treated as enriching the old city's guide, even
+  // when the same instruction asks for food or how to visit each new stop.
+  const destinationCommand=Boolean(chosenDestination&&chosenDestination!==profileValue(previous,'destination'));
+  const guideRevision=savedTrip&&!settingsUpdate&&!destinationCommand?requestedGuideRevision(text):null;
   let decision,dialogueResearch;
   const useExplicitGuideIntent=()=>{decision={intent:'plan',reply:'沿用已保存路线，补充指定的攻略内容。'};dialogueResearch=undefined;};
   if(settingsUpdate)decision={intent:'plan',reply:'已收到你修改的旅行时间与强度。'};
@@ -326,7 +336,7 @@ async function chatTravelWithProfile(body,options){
     }
     else decision=await ask('旅行对话 Agent',personalDialoguePrompt,dialogueData,options);
   }else decision={intent:localIntent(text),reply:localAnswer(text,original)};
-  const completionCommand=savedTrip&&requestsNewRoute(text);
+  const completionCommand=savedTrip&&(requestsNewRoute(text)||destinationCommand);
   if(completionCommand){
     const valid=['answer','plan','clarify'].includes(decision.intent)&&typeof decision.reply==='string'&&decision.reply.trim();
     decision={...(valid?decision:{}),intent:'plan',reply:'按已确认条件补齐旅行安排，并保留本轮明确提出的调整。'};
@@ -337,16 +347,17 @@ async function chatTravelWithProfile(body,options){
   }
   const restartInterview=/(?:重新|从头)(?:了解|梳理|询问|问|采访|定制)|(?:深入|详细)(?:了解|询问|采访|定制)|再问我.*(?:偏好|需求)|补(?:全|齐|充).{0,8}(?:旅行)?偏好|继续了解我/.test(text);
   const contentCommand=savedTrip&&!settingsUpdate&&(restartInterview||guideRevision||purelyVagueFeedback(text)||completionCommand);
-  const commandFacts=completionCommand?routeCompletionFacts(text):contentCommand?guideCommandFacts(text):'';
+  let commandFacts=destinationCommand&&!requestsNewRoute(text)?destinationFacts:completionCommand?routeCompletionFacts(text):contentCommand?guideCommandFacts(text):'';
   const allowDefaults=body.allowDefaults===true||/按默认|默认安排|先出.*(?:方案|草案)|先给.*(?:方案|行程|路线|建议)|先安排|你决定|你来定|随便推荐|不用问|直接安排/.test(text);
   const ordinaryQuestion=!settingsUpdate&&!contentCommand&&(informationQuestion(text)||body.interviewAction!=='plan'&&['active','ready'].includes(previous.interview?.status)),explicitQuestionFacts=options.advisorEnabled&&ordinaryQuestion?questionFacts(text):'',patch=ordinaryQuestion||settingsUpdate||contentCommand?{}:groundedProfilePatch(decision,text,previous);
   // A requested draft authorizes tentative defaults in the same revision as this turn's facts.
   let mergeText=allowDefaults?`${text}\n按默认`:text;
-  const selectedCity=ordinaryQuestion||settingsUpdate||contentCommand?null:manualDestinationForTurn(body,mergeText,previous,patch);
+  const selectedCity=ordinaryQuestion||settingsUpdate?null:manualDestinationForTurn(body,mergeText,previous,patch);
   if(selectedCity){
     patch.destination={value:selectedCity,status:'confirmed'};
     // A touched dropdown is explicit user input, converted to text for the same safe merger.
     mergeText=`目的地是${selectedCity}。\n${mergeText}`;
+    if(contentCommand)commandFacts=`目的地是${selectedCity}。\n${commandFacts}`;
   }
   const updated=settingsUpdate??(contentCommand?(commandFacts?updateTravelProfile(previous,{text:commandFacts,patch:groundedProfilePatch(decision,commandFacts,previous)}):{profile:previous,changed:false,changes:[]}):ordinaryQuestion?(explicitQuestionFacts?updateTravelProfile(previous,{text:explicitQuestionFacts,patch:groundedProfilePatch(decision,explicitQuestionFacts,previous)}):{profile:previous,changed:false,changes:[]}):updateTravelProfile(previous,{text:mergeText,patch,destination:body.textRevision===false?body.destination:undefined,hours:body.textRevision===false?body.hours:undefined}));
   let profile=updated.profile;
@@ -391,6 +402,9 @@ async function chatTravelWithProfile(body,options){
   profile={...profile,followUps:[]};
   const input=travelProfileInput(profile,allowDefaults&&profile.fields.dailyHours.status==='missing'?{...original,hours:8}:original);input.description=text;
   if(!input.destination)return clarify([{field:'destination',question:'你想去哪个城市？'}]);
+  // A previous city's source ledger must not count as research for the newly
+  // selected destination. The open-city planner will perform its own lookup.
+  if(body.currentPlan?.city&&body.currentPlan.city!==input.destination)dialogueResearch=undefined;
   if(updated.changed)emit({type:'profile',profile});
   emit({type:'constraints',input});emit({type:'reply',text:'条件已整理，正在校验每日路线；最终安排尚未确认。'});
   const analysis=analyzeNotes(input.notes),catalog=places.filter(p=>p.city===input.destination),retain=routeCanStay(body,profile,updated.changes,text),reflow=retain&&updated.changes.some(field=>['dayCount','dailyHours','pace'].includes(field)),base=dailyBase(input,analysis,mode);

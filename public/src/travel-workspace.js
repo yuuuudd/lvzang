@@ -117,6 +117,8 @@ export function initWorkspace(){
   const viewport=$('canvas-viewport'),world=$('canvas-world'),nodes=[...world.querySelectorAll('.canvas-node')];let scale=1,panX=24,panY=10,drag=null,panning=true,automaticView=true,wasMobile=mobile();
   const initial=nodes.map(node=>({node,x:Number(node.dataset.x),y:Number(node.dataset.y)}));
   const followingRow=initial.filter(({node})=>['time-node','budget-node','preferences-node'].includes(node.id));let automaticRowY=704;
+  const routeNode=$('route-section'),sourceNode=$('sources-node');let automaticSourceY=662;
+  function arrangeSources(){if(mobile())return;const nextY=Math.max(662,Number(routeNode.dataset.y)+routeNode.offsetHeight+18);if(Number(sourceNode.dataset.x)===780&&[662,automaticSourceY].includes(Number(sourceNode.dataset.y)))position(sourceNode,780,nextY);automaticSourceY=nextY;}
   function arrangeFollowingRow(){
     if(mobile())return;
     const nextY=Math.max(704,$('map-node').offsetHeight+18);
@@ -124,7 +126,7 @@ export function initWorkspace(){
     automaticRowY=nextY;
   }
   function connections(){const from=$('map-node'),fx=Number(from.dataset.x)+from.offsetWidth/2,fy=Number(from.dataset.y)+from.offsetHeight;const paths=nodes.filter(node=>node!==from).map(node=>{const tx=Number(node.dataset.x)+node.offsetWidth/2,ty=Number(node.dataset.y);return `<path d="M${fx} ${fy} C${fx} ${(fy+ty)/2},${tx} ${(fy+ty)/2},${tx} ${ty}"/><circle cx="${tx}" cy="${ty}" r="3"/>`;});$('canvas-connections').innerHTML=paths.join('');}
-  function update(){world.style.transform=`translate(${panX}px,${panY}px) scale(${scale})`;$('zoom-value').textContent=Math.round(scale*100)+'%';connections();}
+  function update(){world.style.transform=`translate(${panX}px,${panY}px) scale(${scale})`;$('zoom-value').textContent=Math.round(scale*100)+'%';arrangeSources();connections();}
   function position(node,x,y){node.dataset.x=String(x);node.dataset.y=String(y);node.style.left=x+'px';node.style.top=y+'px';}
   function bounds(){return {minX:Math.min(...nodes.map(n=>Number(n.dataset.x))),minY:Math.min(...nodes.map(n=>Number(n.dataset.y))),maxX:Math.max(...nodes.map(n=>Number(n.dataset.x)+n.offsetWidth)),maxY:Math.max(...nodes.map(n=>Number(n.dataset.y)+n.offsetHeight))};}
   // Default to a readable width. A taller map must not shrink the entire workspace.
@@ -142,5 +144,7 @@ export function initWorkspace(){
   viewport.addEventListener('keydown',e=>{if(mobile()||!['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)||e.target.closest('.route-map,input,textarea,select,button,a,canvas,summary'))return;automaticView=false;const dx=e.key==='ArrowLeft'?-20:e.key==='ArrowRight'?20:0,dy=e.key==='ArrowUp'?-20:e.key==='ArrowDown'?20:0,node=e.target.closest('.node-header')?.closest('.canvas-node');if(node)position(node,Number(node.dataset.x)+dx,Number(node.dataset.y)+dy);else{panX+=dx;panY+=dy;}update();e.preventDefault();});
   new ResizeObserver(()=>{const isMobile=mobile();if(isMobile!==wasMobile){automaticView=true;wasMobile=isMobile;}arrangeFollowingRow();if(!drag&&automaticView)widthView();else connections();}).observe(viewport);
   new ResizeObserver(()=>{arrangeFollowingRow();connections();}).observe($('map-node'));
+  new ResizeObserver(()=>{arrangeSources();connections();}).observe(routeNode);
+  routeNode.addEventListener('travel-guide-layout',event=>{if(event.detail?.user)automaticView=false;arrangeSources();connections();});
   requestAnimationFrame(()=>{arrangeFollowingRow();widthView();});
 }

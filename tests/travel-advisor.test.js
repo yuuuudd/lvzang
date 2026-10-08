@@ -687,3 +687,64 @@ test('a complete preference profile reaches the explicit planning confirmation w
   const result=await chatTravel({description:'我想补全旅行偏好，请继续了解我，保留已有路线。',profile:currentPlan.profile,currentPlan,mode:'ai',textRevision:true},{...stub,advisorEnabled:true});
   assert.equal(result.kind,'clarify');assert.equal(result.followUps.length,0);assert.equal(result.profile.interview.status,'ready');assert.match(result.assistantReply,/继续补充|继续说/);assert.match(result.assistantReply,/DeepSeek.*规划|开始规划/s);assert.equal(result.stops,undefined);assert.equal(stub.calls.length,0);
 });
+
+function crossCityFixture(city){
+  const currentPlan=savedAdvisorTrip(),profile=currentPlan.profile;
+  for(const [field,value] of Object.entries({requiredPlaces:['广州塔'],excludedPlaces:['花城广场'],stayArea:'广州天河',startArea:'广州东站',interests:['建筑'],transport:'transit',diet:{preferences:['清淡'],restrictions:['海鲜']}}))profile.fields[field]={value,status:'confirmed'};
+  profile.interview={status:'completed',topic:null,skipped:['budget','travelDates'],step:16,total:16,answers:[{field:'destination',question:'去哪里？',answer:'广州'},{field:'requiredPlaces',question:'哪里必去？',answer:'广州塔'}],additions:[]};
+  const names=city==='杭州'?['中国丝绸博物馆','小河直街']:['成都自然博物馆','望平街'];
+  const research={status:'ok',sources:[{...source(),id:'web-new-city',url:'https://example.com/new-city',title:`${city}旅行资料`,excerpt:`${city}可以安排${names.join('、')}的游览，开放与预约待核实。`}],queries:[],errors:[]};
+  const draft={title:`${city}两天旅行`,days:names.map((name,index)=>({dayIndex:index+1,stops:[{name,minutes:90,transit:0,story:'结合偏好参观，具体开放待确认。',sourceIds:['web-new-city']}]}))};
+  return {currentPlan,profile,names,research,draft};
+}
+
+test('the destination refresh control plans Hangzhou and Chengdu using the selected city instead of retained Guangzhou context',async()=>{
+  for(const city of ['杭州','成都']){
+    const {currentPlan,profile,names,research,draft}=crossCityFixture(city),before=JSON.stringify(currentPlan),executed=[];
+    const stub=provider([{intent:'plan',reply:'按保存的条件安排。',profilePatch:{destination:'广州'}},request=>{
+      const data=JSON.parse(request.messages.at(-1).content);assert.equal(data.input.destination,city);assert.equal(request.tool_choice,'required','A city switch requires new-city research');
+      assert.equal(data.availableResearch,undefined,'The old city source ledger does not seed a new-city route');
+      return toolMessage([toolCall('search_travel_web',{query:`${city} 文化 游览 两天`,city})]);
+    },draft,matchingGuide,toolMessage([toolCall('search_travel_web',{query:`${city} 餐厅 地址 推荐菜`,city})]),completeDining]);
+    const description=`请重新规划${city}的完整行程，按已保存的旅行偏好重新选择和安排地点，并补充每站怎么玩、具体餐厅分店、地址、推荐菜和资料来源。`;
+    const result=await chatTravel({description,destination:city,textRevision:false,profile,currentPlan,mode:'ai'},{...stub,advisorEnabled:true,toolImplementations:{searchTravelWeb:async args=>{executed.push(args);return args.query.includes('餐厅')?completeDiningResearch():research;}}});
+    assert.equal(result.kind,'plan',result.assistantReply);assert.equal(result.city,city);assert.deepEqual(result.profile.fields.destination,{value:city,status:'confirmed'});assert.deepEqual(result.stops.map(stop=>stop.name),names);assert.ok(result.stops.every(stop=>stop.city===city));
+    for(const field of ['requiredPlaces','excludedPlaces','stayArea','startArea'])assert.deepEqual(result.profile.fields[field],{value:null,status:'missing'},field);
+    for(const field of ['dayCount','dailyHours','interests','transport','diet'])assert.deepEqual(result.profile.fields[field],profile.fields[field],field);
+    assert.deepEqual(result.profile.interview.answers,profile.interview.answers);assert.ok(executed.length>=1&&executed.every(args=>args.city===city));assert.equal(JSON.stringify(currentPlan),before);
+  }
+});
+
+test('an explicit city switch with guide details creates a new-city route instead of enriching the old city',async()=>{
+  for(const [city,description]of [['成都','改去成都，补充完整攻略，先出方案'],['杭州','换成杭州，完善每站怎么玩，先出方案']]){
+    const {currentPlan,profile,names,research,draft}=crossCityFixture(city),before=JSON.stringify(currentPlan),executed=[];
+    const stub=provider([{intent:'answer',reply:'可以参考新城市的旅行方式。'},toolMessage([toolCall('search_travel_web',{query:`${city} 两天游览`,city})]),draft,matchingGuide,toolMessage([toolCall('search_travel_web',{query:`${city} 餐厅`,city})]),completeDining]);
+    const result=await chatTravel({description,destination:'广州',textRevision:true,profile,currentPlan,mode:'ai'},{...stub,advisorEnabled:true,toolImplementations:{searchTravelWeb:async args=>{executed.push(args);return args.query.includes('餐厅')?completeDiningResearch():research;}}});
+    assert.equal(result.kind,'plan',result.assistantReply);assert.equal(result.city,city);assert.deepEqual(result.stops.map(stop=>stop.name),names);
+    for(const field of ['requiredPlaces','excludedPlaces','stayArea','startArea'])assert.deepEqual(result.profile.fields[field],{value:null,status:'missing'},field);
+    for(const field of ['dayCount','dailyHours','interests','diet'])assert.deepEqual(result.profile.fields[field],profile.fields[field],field);
+    assert.deepEqual(result.profile.interview.answers,profile.interview.answers);assert.ok(executed.length&&executed.every(args=>args.city===city));assert.equal(JSON.stringify(currentPlan),before);
+  }
+});
+
+test('a refresh exits an active or ready interview explicitly and keeps the selected city after synthesis',async()=>{
+  for(const status of ['active','ready']){
+    const city='杭州',{currentPlan,profile,research,draft}=crossCityFixture(city);
+    profile.interview={...profile.interview,status,topic:status==='active'?'budget':null};
+    profile.followUps=status==='active'?[{field:'budget',question:'预算多少？'}]:[];
+    const records=structuredClone(profile.interview.answers);
+    const stub=provider([{intent:'ready',fields:{destination:{value:'广州',evidence:['广州']}}},toolMessage([toolCall('search_travel_web',{query:'杭州 两天',city})]),draft,matchingGuide,toolMessage([toolCall('search_travel_web',{query:'杭州 餐厅',city})]),completeDining]);
+    const description=`请重新规划${city}的完整行程，按已保存的旅行偏好重新选择和安排地点，并补充每站怎么玩、具体餐厅分店、地址、推荐菜和资料来源。`;
+    const result=await chatTravel({description,destination:city,textRevision:false,profile,currentPlan,mode:'ai',interviewAction:'plan'},{...stub,advisorEnabled:true,toolImplementations:{searchTravelWeb:async args=>args.query.includes('餐厅')?completeDiningResearch():research}});
+    assert.equal(result.kind,'plan',result.assistantReply);assert.equal(result.city,city);assert.equal(result.profile.interview.status,'completed');assert.deepEqual(result.profile.interview.answers,records);
+    assert.deepEqual(result.profile.fields.requiredPlaces,{value:null,status:'missing'});
+  }
+});
+
+test('asking how to visit another city does not select it or start a new route',async()=>{
+  for(const description of ['去杭州怎么玩？','去杭州两天够吗？','如果改去杭州会怎样？','不要改去杭州，只说说那边的玩法']){
+    const {currentPlan,profile}=crossCityFixture('杭州'),stub=provider([{intent:'answer',reply:'可以先了解杭州的游览方式，当前路线继续保留。'}]);
+    const result=await chatTravel({description,destination:'广州',textRevision:true,profile,currentPlan,mode:'ai'},{...stub,advisorEnabled:true});
+    assert.equal(result.kind,'answer',description);assert.deepEqual(result.profile.fields.destination,profile.fields.destination,description);assert.deepEqual(result.profile.fields.requiredPlaces,profile.fields.requiredPlaces,description);assert.equal(stub.calls.length,1);
+  }
+});

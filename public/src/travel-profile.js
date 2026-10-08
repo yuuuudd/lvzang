@@ -130,7 +130,7 @@ function chineseNumber(value){
 const quantity='([零一二两三四五六七八九十\\d]+(?:\\.\\d+)?)';
 function foundNumber(text,pattern){const match=text.match(new RegExp(pattern));return match?chineseNumber(match[1]):undefined;}
 function cleanPlace(name){return name.trim().replace(/^(?:我(?:们)?(?:想|要)?|(?:还|也|只)?(?:一定要去|必须去|必去|想去|保留|加上|加入|改去|不想去|不去|不要去|避开|去掉|删除|取消))\s*/, '').replace(/(?:了|吧|即可|就行|就好|看看|参观|游玩|打卡)$/,'').trim();}
-function parsePlaceChanges(text,protectedNames=[]){
+function parsePlaceChanges(text,protectedNames=[],destination=''){
   const required=[],excluded=[];
   const protectedSet=new Set(protectedNames),masks={和:'\uE000',及:'\uE001',与:'\uE002'},unmask={'\uE000':'和','\uE001':'及','\uE002':'与'};
   const splitNames=body=>{
@@ -152,9 +152,17 @@ function parsePlaceChanges(text,protectedNames=[]){
     }
     for(const match of matches){
       const negative=/^(?:不想去|不要去|不去|避开|去掉|删除|取消)/.test(match[0]);
+      if(!negative&&/(?:不要|不用|不必|无需|不想|别)(?:再)?$/.test(segment.slice(0,match.index))){lastNegative=null;continue;}
       lastNegative=negative;
       const body=match[1].split(/(?:但|但是|不过|然后|现在|还是|改为|改成)(?=.+)/)[0];
-      for(const part of splitNames(body)){const name=cleanPlace(part);if(!name||name.length>80||/^(?:安排|方案|行程|预算|小时|天数|地点|全部|所有|全部必去|所有必去|全部排除|所有排除)$/.test(name))continue;(negative?excluded:required).push(name);}
+      for(const part of splitNames(body)){
+        const name=cleanPlace(part);if(!name||name.length>80||/^(?:安排|方案|行程|预算|小时|天数|地点|全部|所有|全部必去|所有必去|全部排除|所有排除)$/.test(name))continue;
+        // “改去成都四天” chooses the city and duration, not an attraction.
+        // Only consume the exact city plus travel/duration suffixes; a distinct
+        // name such as “成都博物馆” must remain a required place.
+        if(!negative&&/^(?:想去|改去)/.test(match[0])&&destination&&name.startsWith(destination)&&/^(?:市)?\s*(?:(?:玩|游玩|旅行|旅游|游览)\s*)?(?:[一二两三四五六七八九十\d]+\s*(?:天|日))?\s*(?:旅行|旅游|游玩)?$/.test(name.slice(destination.length)))continue;
+        (negative?excluded:required).push(name);
+      }
     }
   }
   return {required:[...new Set(required)],excluded:[...new Set(excluded)]};
@@ -337,7 +345,7 @@ export function updateTravelProfile(previous,{text='',patch={},destination,hours
   // UI defaults are assumptions, never evidence that the traveler chose Guangzhou or four hours.
   if(destination!==undefined&&profile.fields.destination.status==='missing'&&!own(patch,'destination')&&!own(explicit,'destination'))apply('destination',destination,'tentative');
   if(hours!==undefined&&profile.fields.dailyHours.status==='missing'&&!own(patch,'dailyHours')&&!own(explicit,'dailyHours'))apply('dailyHours',hours,'tentative');
-  const placeChanges=parsePlaceChanges(text,[...(profile.fields.requiredPlaces.value??[]),...(profile.fields.excludedPlaces.value??[]),...places.flatMap(place=>[place.name,...place.aliases])]);
+  const placeChanges=parsePlaceChanges(text,[...(profile.fields.requiredPlaces.value??[]),...(profile.fields.excludedPlaces.value??[]),...places.flatMap(place=>[place.name,...place.aliases])],profile.fields.destination.value);
   if(placeChanges.required.length||placeChanges.excluded.length){
     const replaceRequired=/必去(?:地点|景点)?(?:改成|改为|换成)|只去/.test(text),replaceExcluded=/(?:排除|避开)(?:地点|景点)?(?:改成|改为|换成)|只(?:排除|避开)/.test(text);
     const required=new Set(replaceRequired?[]:profile.fields.requiredPlaces.value??[]),excluded=new Set(replaceExcluded?[]:profile.fields.excludedPlaces.value??[]);

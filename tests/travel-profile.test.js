@@ -59,6 +59,18 @@ test('explicit destination actions still accept named cities beyond the local ca
   }
 });
 
+test('switching a city does not add that city and its duration as a mandatory attraction',()=>{
+  const previous=basic('广州两天，每天四小时，必去广州塔，住广州东站附近');
+  for(const text of ['改去成都，补充完整攻略','改去成都4天，每天3小时','我想去成都四天']){
+    const next=update(previous,text);
+    assert.equal(next.fields.destination.value,'成都',text);
+    assert.deepEqual(next.fields.requiredPlaces,{value:null,status:'missing'},text);
+    assert.deepEqual(next.fields.stayArea,{value:null,status:'missing'},text);
+  }
+  const withAttraction=update(previous,'改去成都，必去成都博物馆');
+  assert.deepEqual(withAttraction.fields.requiredPlaces.value,['成都博物馆']);
+});
+
 test('an unsupported model destination cannot overwrite the city or clear its saved local conditions',()=>{
   const previous=basic('广州三天，每天四小时，必去粤博，不去广州塔，住在天河，从广州南站出发');
   for(const [text,patch]of [['同一地点不要分到不同天',{destination:'不同天'}],['喜欢文化和建筑',{destination:'北京'}],['同一地点不要分到不同天',{destination:{value:'不同天',status:'tentative'}}]]){
