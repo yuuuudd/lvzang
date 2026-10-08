@@ -84,7 +84,11 @@ export function setMessage(article,text,meta=''){
 export function revealChatMessage(article){
   requestAnimationFrame(()=>{
     if(!article.isConnected)return;
-    if(mobile()){article.scrollIntoView({block:'start',behavior:'instant'});return;}
+    if(mobile()){
+      const toolbarHeight=$('route-refresh-slot')?.getBoundingClientRect().height||0;
+      window.scrollTo({top:Math.max(0,window.scrollY+article.getBoundingClientRect().top-toolbarHeight-12),behavior:'instant'});
+      return;
+    }
     const scroller=article.closest('.chat-scroll');if(!scroller)return;
     scroller.scrollTop+=article.getBoundingClientRect().top-scroller.getBoundingClientRect().top-12;
   });

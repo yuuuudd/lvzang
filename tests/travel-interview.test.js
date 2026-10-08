@@ -20,6 +20,42 @@ function savedTrip(){
 const answers={destination:'广州',travelDates:'日期还没想好',dayCount:'一周',dailyHours:'每天25小时',startTime:'睡醒再说',companions:'2',budget:'500',crowdPreference:'都安排',interests:'美食、建筑，还有别的',requiredPlaces:'没什么特别想去的',excludedPlaces:'没有不想去的',pace:'可以轻松一点吗？',diet:'清淡就好',stayArea:'还没订',startArea:'不知道',transport:'都可以'};
 async function collect(values=answers){let result=await call(emptyTravelProfile(),'开始完整问答','start');const seen=[];while(result.profile.interview.status==='active'){const field=result.profile.interview.topic;assert.ok(!seen.includes(field));seen.push(field);result=await call(result.profile,values[field]);}return {result,seen};}
 
+test('restart keeps only the selected destination and actively starts at question one without calling a model',async()=>{
+  const plan=savedTrip(),oldProfile=updateTravelProfile(plan.profile,{text:'预算每人全程500元，必去广州塔，不去陈家祠，住在广州东，从珠江新城出发，地铁出行'}).profile;
+  oldProfile.interview={status:'ready',topic:null,answers:[{field:'interests',question:'想体验什么？',answer:'广州美食购物'}],additions:['再去天环'],skipped:['diet'],step:16,total:16};
+  oldProfile.revision=27;
+  const before=JSON.stringify({plan,oldProfile});
+  const result=await call(oldProfile,'刷新目的地','restart',{destination:' 西藏 ',currentPlan:plan,previous:plan.input,history:[{role:'user',content:'广州3天，每天4小时'}],notes:'旧广州攻略'});
+  assert.equal(result.kind,'clarify');assert.equal(result.stops,undefined);assert.equal(result.profile.revision,0);
+  assert.deepEqual(result.profile.fields,{...emptyTravelProfile().fields,destination:{value:'西藏',status:'confirmed'}});
+  assert.deepEqual(result.profile.interview.answers,[]);assert.deepEqual(result.profile.interview.additions,[]);assert.deepEqual(result.profile.interview.skipped,[]);
+  assert.equal(result.profile.interview.status,'active');assert.equal(result.profile.interview.topic,'destination');assert.equal(result.profile.interview.step,1);assert.equal(result.profile.interview.total,16);
+  assert.equal(result.profile.interview.pendingQuestion.field,'destination');assert.equal(result.followUps[0].question,result.profile.interview.pendingQuestion.question);
+  assert.match(result.followUps[0].question,/西藏/);assert.match(result.followUps[0].question,/城市|地点/);
+  assert.match(result.assistantReply,/开始.*西藏.*16/);assert.match(result.assistantReply,/旧行程.*保留/);assert.match(result.assistantReply,/不沿用旧条件/);
+  assert.equal(JSON.stringify({plan,oldProfile}),before);
+  const resumed=await call(normalizeTravelProfile(JSON.parse(JSON.stringify(result.profile))),'','resume');
+  assert.equal(resumed.profile.interview.topic,'destination');assert.equal(resumed.followUps[0].question,result.followUps[0].question);
+});
+
+test('restart collects all sixteen new topics verbatim with skip and never restores old conditions',async()=>{
+  let result=await call(savedTrip().profile,'','restart',{destination:'杭州'});
+  const seen=[];
+  while(result.profile.interview.status==='active'){
+    const topic=result.profile.interview.topic;assert.ok(!seen.includes(topic));seen.push(topic);
+    result=topic==='travelDates'?await call(result.profile,'','skip'):await call(result.profile,topic==='destination'?'  杭州，想先去西湖附近  ':`新旅行的${topic}回答`);
+  }
+  assert.deepEqual(seen,TRAVEL_INTERVIEW_TOPICS);assert.equal(result.profile.interview.status,'ready');assert.equal(result.profile.interview.answers.length,15);
+  assert.deepEqual(result.profile.interview.skipped,['travelDates']);assert.equal(result.profile.interview.answers[0].answer,'  杭州，想先去西湖附近  ');
+  assert.deepEqual(result.profile.fields,{...emptyTravelProfile().fields,destination:{value:'杭州',status:'confirmed'}});
+  assert.equal(result.profile.interview.pendingQuestion,undefined);
+});
+
+test('restart requires its explicit destination and does not fall back to the previous trip',()=>{
+  const body={profile:savedTrip().profile,description:'',interviewAction:'restart'};
+  for(const destination of [undefined,null,'', '   ',42,'城'.repeat(41)])assert.throws(()=>handleTravelInterview({...body,destination}),/目的地/);
+});
+
 test('all sixteen raw answers advance locally without semantic gates or changes to structured fields',async()=>{
   const {result,seen}=await collect();assert.deepEqual(seen,TRAVEL_INTERVIEW_TOPICS);assert.equal(result.profile.interview.status,'ready');assert.equal(result.profile.interview.answers.length,16);assert.equal(result.stops,undefined);
   assert.deepEqual(result.profile.fields,emptyTravelProfile().fields);

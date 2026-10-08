@@ -1,4 +1,4 @@
-import {normalizeTravelProfile,TRAVEL_INTERVIEW_TOPICS} from './public/src/travel-profile.js';
+import {emptyTravelProfile,normalizeTravelProfile,TRAVEL_INTERVIEW_TOPICS} from './public/src/travel-profile.js';
 import {places} from './public/src/travel-catalog.js';
 
 const questions={
@@ -36,9 +36,20 @@ function response(profile,body,prefix='已记下，继续下一题。'){
 
 // Collection stores exact user text. Interpretation runs only after explicit planning.
 export function handleTravelInterview(body){
-  const profile=normalizeTravelProfile(body.profile),text=body.description.trim(),state=profile.interview;
   let action=body.interviewAction;
-  if(action!==undefined&&!['start','resume','skip','pause','plan'].includes(action))throw new Error('旅行问答操作无效');
+  if(action!==undefined&&!['start','restart','resume','skip','pause','plan'].includes(action))throw new Error('旅行问答操作无效');
+  if(action==='restart'){
+    // A newly selected destination starts an independent interview. Do not read
+    // any of the previous profile, route, notes or history into its conditions.
+    if(typeof body.destination!=='string'||!body.destination.trim())throw new Error('请先选择新旅行的目的地');
+    const fresh=emptyTravelProfile();
+    fresh.fields.destination={value:body.destination,status:'confirmed'};
+    const next=normalizeTravelProfile(fresh),city=next.fields.destination.value;
+    const pendingQuestion={field:'destination',question:`这次以${city}为目的地，对吗？主要想去其中哪些城市、区域或地点？还没确定也可以直接说。`};
+    next.interview={status:'active',topic:'destination',answers:[],additions:[],skipped:[],pendingQuestion};
+    return {response:response(progress(next),body,`开始${city}新旅行16问。旧行程保留供你查看，这次不沿用旧条件。每题按自己的方式回答即可，也可以跳过或暂停。`)};
+  }
+  const profile=normalizeTravelProfile(body.profile),text=body.description.trim(),state=profile.interview;
   if(!action){
     if(['active','ready'].includes(state?.status)?/^(?:开始|重新开始|从头开始)(?:完整)?(?:旅行)?问答[。！!\s]*$/.test(text):startPattern.test(text))action='start';
     else if(state&&/^(?:请|先)?(?:暂停|先不问|暂停问答|暂停采访|停止问答|先聊别的)[。！!\s]*$/.test(text))action='pause';
