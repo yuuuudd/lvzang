@@ -109,12 +109,9 @@ export function createTravelMap() {
     });
     const caption = document.getElementById('map-landmark-caption');
     const top = Math.max(90, Math.ceil((caption.getBoundingClientRect().bottom - viewport.getBoundingClientRect().top) / (viewport.getBoundingClientRect().width / width)) + 12);
-    // Dense discovery stays anchored to geography. Large packing offsets made a
-    // city look like a board of buildings disconnected from the road network.
-    const offsets = density === 'detailed' ? items.map(item=>({id:item.id,dx:0,dy:0})) : layoutLandmarks(items, {width, height, top, bottom: 32, gap: 12}).map(item=>{
-      const length=Math.hypot(item.dx,item.dy),factor=length>36?36/length:1;
-      return {...item,dx:item.dx*factor,dy:item.dy*factor};
-    });
+    // Keep the collision-free offsets intact: clipping each displacement again
+    // makes transparent button bounds overlap. Leaders retain the true POI anchor.
+    const offsets = density === 'detailed' ? items.map(item=>({id:item.id,dx:0,dy:0})) : layoutLandmarks(items, {width, height, top, bottom: 32, gap: 12});
     const nodes = [];
     leaders.setAttribute('viewBox', `0 0 ${width} ${height}`);
     for (const {id, dx, dy} of offsets) {
@@ -214,9 +211,11 @@ export function createTravelMap() {
       link.textContent = '在高德导航'; link.dataset.locationStatus = 'resolved';
     });
   }
-  function showMessage(text, retry = false) {
+  function showMessage(text, retry = false, presentation = 'blocking') {
     message.replaceChildren(element('p', text));
     if (retry) message.append(button('重新加载地图', () => {configPromise = null; render(currentPlan, viewOptions());}));
+    message.dataset.presentation = presentation;
+    message.setAttribute('role', surface.dataset.mapPhase === 'error' ? 'alert' : 'status');
     message.hidden = false;
   }
   function mapFailure() {
@@ -441,7 +440,10 @@ export function createTravelMap() {
       if(needsDestinationView&&!cameraMoved&&area)map.setZoomAndCenter(area.zoom,area.position);
       map.resize?.(); available = true; controls(true);showCurrentLocation();
       if (!landmarkStops.length) {
-        setStatus(`${plan.city} · 当天尚无地点 · 高德地图`, 'empty'); showMessage(area?`已定位${area.name}。这一天还没有可靠地点安排，可搜索地点或在对话中补充。`:`暂未定位“${plan.city}”，当前显示全国范围。可搜索具体地点或补充目的地名称。`); return;
+        setStatus(`${plan.city} · 当天尚无地点 · 高德地图`, 'empty');
+        // The base map is ready even without itinerary/discovery markers. Keep
+        // its gestures available; a missing stop is not an SDK loading failure.
+        showMessage(area?`已定位${area.name}，可拖动地图或搜索地点。`:`暂未定位“${plan.city}”，当前显示全国地图，可继续搜索地点。`, false, 'notice'); return;
       }
       setStatus(`高德地图 · 正在核实 ${landmarkStops.length} 处地标`, 'resolving'); message.hidden = true;
       landmarkStops.forEach(rowFor); locationDetails.hidden = false; await Promise.all(landmarkStops.map(stop => locate(stop, plan.city, token)));

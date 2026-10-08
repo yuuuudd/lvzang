@@ -10,6 +10,7 @@ const rows=[
  ['上海','东方明珠','sh-oriental-pearl'],['上海','上海中心大厦','sh-shanghai-tower'],['上海','上海海关大楼','sh-customs-house'],['上海','中华艺术宫','sh-china-art-museum'],
  ['成都','天府熊猫塔','cd-panda-tower'],['成都','安顺廊桥','cd-anshun-bridge'],['成都','望江楼','cd-wangjiang-tower'],['成都','文殊院','cd-wenshu-monastery'],
  ['拉萨','布达拉宫','xz-potala-palace'],['拉萨','大昭寺','xz-jokhang-temple'],['拉萨','罗布林卡','xz-norbulingka'],['日喀则','扎什伦布寺','xz-tashilhunpo'],
+ ['深圳','平安金融中心','shenzhen-pingan-finance'],['深圳','京基100','shenzhen-kk100'],['深圳','地王大厦','shenzhen-diwang'],['深圳','深圳市民中心','shenzhen-civic-center'],['深圳','春笋','shenzhen-china-resources-tower'],['深圳','深圳湾文化广场','shenzhen-bay-culture'],
  ['广州','广东省博物馆','gz-museum'],['广州','广州塔','gz-tower'],['广州','广州大剧院','gz-opera'],['广州','广州国际金融中心','gz-ifc']
 ];
 const app=createApp({key:'',accountsEnabled:false,fetchImpl:async()=>{throw Error('No external request in model preview');}});await new Promise(resolve=>app.listen(0,'127.0.0.1',resolve));
@@ -30,7 +31,7 @@ try{
  },rows);
  await mkdir('artifacts/landmark-models',{recursive:true});await page.screenshot({path:'artifacts/landmark-models/contact-sheet.png',fullPage:true});
  for(const model of models){assert.equal(model.kind,model.expected,`${model.city} ${model.name}: random IDs must resolve to the dedicated model`);assert.equal(model.noModel,false,model.name);assert.ok(model.painted>250,`${model.name}: model is not blank`);}
- assert.equal(new Set(models.slice(0,23).map(model=>model.image)).size,23,'Each new landmark has a distinct rendered silhouette');
+ assert.equal(new Set(models.slice(0,29).map(model=>model.image)).size,29,'Each new landmark has a distinct rendered silhouette');
  const fallback=await page.evaluate(async()=>{const {createLandmarkMarker}=await import('/src/travel-map-landmarks.js');return createLandmarkMarker({id:'unknown-random',city:'未知城市',name:'未收录的地点'}).dataset.landmarkKind;});assert.equal(fallback,'place');
  assert.deepEqual(errors,[]);console.log(`PASS: ${models.length} dedicated landmark renders, random-ID city/name resolution, distinct nonblank silhouettes and generic fallback; contact sheet saved.`);
 }finally{await browser.close();await new Promise(resolve=>app.close(resolve));}

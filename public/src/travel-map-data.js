@@ -78,11 +78,12 @@ function normalizePlace(poi) {
   }
 }
 
-/** Only a unique exact/alias name with a confirmed current city is selected automatically. */
+/** Prefer a unique full name; aliases are fallback names, still requiring a confirmed area. */
 export function selectAmapPlace(pois, query = {}) {
   const {name, city, aliases = [], region = null} = query || {};
   const expectedCity = cityKey(city);
-  const expectedNames = new Set([name, ...(Array.isArray(aliases) ? aliases : [])].map(nameKey).filter(Boolean));
+  const expectedName = nameKey(name);
+  const aliasNames = new Set((Array.isArray(aliases) ? aliases : []).map(nameKey).filter(Boolean));
   const ids = new Set();
   const candidates = [];
   const matchArea=place=>{
@@ -116,7 +117,10 @@ export function selectAmapPlace(pois, query = {}) {
     candidates.push(place);
   }
   if (!candidates.length) return {status: 'missing', candidates};
-  const exact = candidates.filter(place => expectedNames.has(nameKey(place.name)));
+  const canonical = candidates.filter(place => expectedName && nameKey(place.name) === expectedName);
+  // Distinct full-name matches remain ambiguous, including coincident points.
+  // Do not resolve them via a unique alias or strip qualifiers such as branches.
+  const exact = canonical.length ? canonical : candidates.filter(place => aliasNames.has(nameKey(place.name)));
   if (exact.length === 1 && expectedCity && matchArea(exact[0])===true) {
     return {status: 'matched', place: exact[0], candidates};
   }

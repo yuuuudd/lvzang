@@ -176,6 +176,79 @@ function tashilhunpo(){
   m.hall(-30,10,22,24,11,7,C.gold,C.white);m.hall(28,10,22,23,11,7,C.gold,C.white);return m.triangles;
 }
 
+function pinganFinance(){
+  // Faceted taper and pale structural ribs distinguish Ping An's pointed crown.
+  const m=mesh(),silver=[205,214,209],glass=[109,147,157],turn=Math.PI/8;m.base(43,36);
+  m.box(0,2,0,32,4,27,silver);m.frustum(0,6,0,16,82,12.7,glass,8,1,turn);m.frustum(0,88,0,12.7,28,.65,glass,8,1,turn);
+  for(let i=0;i<8;i++){
+    const a=i/8*Math.PI*2+turn,at=(r,y)=>[Math.cos(a)*r,y,Math.sin(a)*r];
+    m.rod(at(16.2,6),at(12.9,88),.75,silver,4);m.rod(at(12.9,88),at(.65,116),.5,silver,4);
+  }
+  for(let y=14;y<88;y+=8){
+    const r=16-(y-6)/82*3.3+.15,at=i=>[Math.cos(i/8*Math.PI*2+turn)*r,y,Math.sin(i/8*Math.PI*2+turn)*r];
+    for(let i=0;i<8;i++)m.rod(at(i),at(i+1),.22,silver,4);
+  }
+  return m.triangles;
+}
+function kk100(){
+  // An oval glass shaft closes in a curved, slightly offset crown, without a spire.
+  const m=mesh(),sides=16,levels=12;m.base(43,35);m.box(0,2,0,31,4,24,C.white);
+  const rings=Array.from({length:levels+1},(_,j)=>{const t=j/levels,crown=Math.max(0,(t-.76)/.24),r=(14-2*t)*Math.sqrt(Math.max(0,1-crown*crown));return Array.from({length:sides},(_,i)=>{const a=i/sides*Math.PI*2;return [-3*t*t+Math.cos(a)*r,6+108*t,Math.sin(a)*r*.63];});});
+  for(let j=0;j<levels;j++)for(let i=0;i<sides;i++){
+    const n=(i+1)%sides,color=i%4===0?[134,185,199]:[65,122,150];m.face(rings[j][i],rings[j+1][i],rings[j+1][n],color,[0,55,0]);m.face(rings[j][i],rings[j+1][n],rings[j][n],color,[0,55,0]);
+    if(i%4===0)m.rod(rings[j][i],rings[j+1][i],.36,C.white,4);
+    if(j>0&&j<10)m.rod(rings[j][i],rings[j][n],.22,[178,208,215],4);
+  }
+  return m.triangles;
+}
+function diwang(){
+  // Green rectangular tower, recessed shoulders and two separate rooftop needles.
+  const m=mesh(),glass=[80,148,132],trim=[209,212,181];m.base(47,38);m.box(0,2,0,37,7,29,C.stone);
+  m.box(0,9,0,26,76,20,glass);m.box(0,85,0,21,7,17,glass);m.box(0,92,0,13,7,12,trim);
+  for(const x of [-12,-6,6,12])m.box(x,9,10.2,.7,75,.5,trim);
+  for(let y=16;y<86;y+=7){m.box(0,y,10.4,26,.7,.45,trim);m.box(13.2,y,0,.45,.7,20,trim);}
+  for(const x of [-8,8]){m.frustum(x,87,0,4,12,4,trim,12);m.frustum(x,99,0,4,5,1.5,C.glass,12);m.rod([x,103,0],[x,122,0],.55,trim,6);}
+  m.windows(0,4,14.8,32,5,1);return m.triangles;
+}
+function civicCenter(){
+  // Broad blue-grey wing canopy, with the contrasting red and yellow end volumes.
+  const m=mesh(),canopy=[118,158,179];m.base(111,61);m.box(0,2,3,94,3,43,C.white);m.box(0,5,-2,88,15,27,[180,196,199]);
+  m.windows(0,8,11.8,83,10,2);m.box(0,5,12,23,16,1,C.glass);
+  m.frustum(-33,5,0,8,26,8,[183,63,51],16);m.box(32,5,0,16,26,17,[216,174,59]);
+  const section=x=>{const y=23+12*Math.pow(Math.abs(x)/54,1.7),depth=19+4*(1-Math.abs(x)/54);return [[x,y,-depth],[x,y,depth]];};
+  for(let x=-54;x<54;x+=9){
+    const [a,b]=section(x),[c,d]=section(x+9),lower=p=>[p[0],p[1]-1.8,p[2]];
+    m.face(a,b,d,canopy,[x,10,0]);m.face(a,d,c,canopy,[x,10,0]);m.face(lower(a),lower(d),lower(b),C.roof,[x,40,0]);m.face(lower(a),lower(c),lower(d),C.roof,[x,40,0]);
+    m.face(b,lower(b),lower(d),C.white,[x,0,0]);m.face(b,lower(d),d,C.white,[x,0,0]);m.rod(a,b,.28,C.white,4);
+  }
+  for(const x of [-47,-20,20,47])m.rod([x,5,-10],[x,25,-10],.7,C.white,6);
+  for(const x of [-38,-19,0,19,38])m.box(x,2,25,12,.6,8,[187,200,184]);return m.triangles;
+}
+function chinaResourcesTower(){
+  // The rounded bamboo-shoot envelope has a visible diagonal structural lattice.
+  const m=mesh(),sides=16,profile=[[4,11],[19,14],[38,14.2],[59,12.2],[80,9.1],[99,5.3],[114,.55]];m.base(44,37);
+  const rings=profile.map(([y,r])=>Array.from({length:sides},(_,i)=>{const a=i/sides*Math.PI*2;return [Math.cos(a)*r,y,Math.sin(a)*r];}));
+  for(let j=0;j<rings.length-1;j++)for(let i=0;i<sides;i++){
+    const n=(i+1)%sides,color=i%4===0?[157,188,194]:[94,139,153];m.face(rings[j][i],rings[j+1][i],rings[j+1][n],color,[0,53,0]);m.face(rings[j][i],rings[j+1][n],rings[j][n],color,[0,53,0]);
+    m.rod(rings[j][i],rings[j+1][n],.29,C.white,4);m.rod(rings[j][n],rings[j+1][i],.29,C.white,4);
+  }
+  m.frustum(0,2,0,16,2,15,C.white,16);m.frustum(0,114,0,.55,1,0,C.white,8);return m.triangles;
+}
+function bayCulture(){
+  // Paired pale boulders with overhangs and dark entry recesses, not the Bay stadium.
+  const m=mesh(),stone=[221,220,210];m.base(105,63);m.box(0,2,2,94,3,49,[202,205,195]);
+  for(const [x,z,scale,flip]of [[-25,-2,1,1],[25,3,.86,-1]]){
+    m.box(x,5,z,23,12,24,C.glass);
+    const profile=[[11,11],[17,19],[29,21],[39,17],[43,8]],sides=16;
+    const rings=profile.map(([y,r])=>Array.from({length:sides},(_,i)=>{const a=i/sides*Math.PI*2,round=v=>Math.sign(v)*Math.pow(Math.abs(v),.65);return [x+flip*(y-11)*.14+round(Math.cos(a))*r*scale,5+(y-5)*scale,z+round(Math.sin(a))*r*scale*.83];}));
+    for(let j=0;j<rings.length-1;j++)for(let i=0;i<sides;i++){const n=(i+1)%sides,color=j===0?[188,191,184]:stone;m.face(rings[j][i],rings[j+1][i],rings[j+1][n],color,[x,25,z]);m.face(rings[j][i],rings[j+1][n],rings[j][n],color,[x,25,z]);}
+    const top=rings.at(-1),center=[x+flip*32*.14,5+38*scale,z];for(let i=0;i<sides;i++)m.face(center,top[i],top[(i+1)%sides],stone,[x,22,z]);
+    m.box(x,6,z+12*scale,15*scale,7*scale,.8,C.dark);m.box(x,14*scale,z+13*scale,20*scale,1.4,5,stone);
+    for(let step=0;step<3;step++)m.box(x,2+step,z+23-step*2,22,1,5,C.white);
+  }
+  m.box(0,5,-13,16,5,10,[201,207,200]);for(const x of [-46,46])m.tree(x,-23);return m.triangles;
+}
+
 const factories=Object.freeze({
   'hz-leifeng-tower':leifeng,'hz-baochu-pagoda':baochu,'hz-three-pools':threePools,'hz-lingyin-temple':lingyin,
   'sz-tiger-hill':tigerHill,'sz-museum':suzhouMuseum,'sz-north-temple-pagoda':northTemple,'sz-gate-east':gateEast,
@@ -183,6 +256,8 @@ const factories=Object.freeze({
   'sh-oriental-pearl':orientalPearl,'sh-shanghai-tower':shanghaiTower,'sh-customs-house':customsHouse,'sh-china-art-museum':chinaArt,
   'cd-panda-tower':pandaTower,'cd-anshun-bridge':anshunBridge,'cd-wangjiang-tower':wangjiangTower,'cd-wenshu-monastery':wenshu,
   'xz-potala-palace':potala,'xz-jokhang-temple':jokhang,'xz-norbulingka':norbulingka,'xz-tashilhunpo':tashilhunpo,
+  'shenzhen-pingan-finance':pinganFinance,'shenzhen-kk100':kk100,'shenzhen-diwang':diwang,
+  'shenzhen-civic-center':civicCenter,'shenzhen-china-resources-tower':chinaResourcesTower,'shenzhen-bay-culture':bayCulture,
 });
 export const landmarkModelKeys=Object.freeze(Object.keys(factories));
 export function hasLandmarkGeometry(key){return Object.hasOwn(factories,key);}

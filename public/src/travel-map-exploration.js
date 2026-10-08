@@ -76,6 +76,18 @@ const suzhouLandmarkSource = 'https://www.suzhou.gov.cn/gzdmksz/hdjs/202312/52f0
 const tibetLandmarkSource = 'https://wlt.xizang.gov.cn/xwzx_69/tzgg/202111/t20211111_269582.html';
 const detailedOnlyIds = new Set(['hz-baochu-pagoda', 'sz-north-temple-pagoda', 'sh-customs-house', 'cd-wangjiang-tower', 'xz-tashilhunpo']);
 const otherDestinationLandmarks = [
+  curated('shenzhen-pingan-finance', '深圳', '平安金融中心', 'landmark', ['深圳平安金融中心', '平安国际金融中心', '平安金融中心大厦'],
+    'https://wtl.sz.gov.cn/lyfw/lyxw/content/post_11009514.html'),
+  curated('shenzhen-kk100', '深圳', '京基100', 'landmark', ['京基100大厦', '京基一百大厦', '京基一百', 'KK100'],
+    'https://www.sz.gov.cn/szzt2010/yhyshj/zdyq/lhq/content/post_12428213.html'),
+  curated('shenzhen-diwang', '深圳', '地王大厦', 'landmark', ['深圳地王大厦', '信兴广场', '信兴广场深圳地王商业大厦'],
+    'https://www.sz.gov.cn/szstorykr/202302/content/post_10425807.html'),
+  curated('shenzhen-civic-center', '深圳', '深圳市民中心', 'landmark', ['市民中心', '深圳市市民中心'],
+    'https://www.sz.gov.cn/szzsj/gkmlpt/content/8/8702/post_8702140.html'),
+  curated('shenzhen-china-resources-tower', '深圳', '中国华润大厦', 'landmark', ['春笋', '中国华润大厦(春笋)', '深圳湾春笋', '华润春笋大厦'],
+    'https://www.sz.gov.cn/cn/xxgk/zfxxgj/gqdt/content/post_11544779.html'),
+  curated('shenzhen-bay-culture', '深圳', '深圳湾文化广场', 'culture', ['深圳湾文化广场项目', 'Shenzhen Bay Culture Square'],
+    'https://www.sz.gov.cn/ztfw/gysy/wyk_183958/content/mpost_12063229.html'),
   curated('hz-leifeng-tower', '杭州', '雷峰塔', 'landmark', ['杭州雷峰塔', '雷峰夕照', '雷峰塔景区雷峰塔'],
     'https://wgly.hangzhou.gov.cn/art/2022/12/1/art_1229696389_58943150.html'),
   curated('hz-baochu-pagoda', '杭州', '保俶塔', 'landmark', ['杭州保俶塔', '宝石山保俶塔', '杭州西湖风景名胜区-保俶塔'],

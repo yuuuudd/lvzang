@@ -13,6 +13,35 @@ test('signature exploration includes Tianhuan and Grandview shopping landmarks w
   }
 });
 
+test('Shenzhen has six sourced exploration buildings without requiring an accepted itinerary', () => {
+  const ids=['shenzhen-pingan-finance','shenzhen-kk100','shenzhen-diwang','shenzhen-civic-center','shenzhen-china-resources-tower','shenzhen-bay-culture'];
+  const result=getExplorationLandmarks('深圳',{density:'detailed'});
+  assert.deepEqual(result.map(place=>place.id),ids);
+  assert.ok(getExplorationLandmarks('深圳').length>=5);
+  for(const place of result){
+    assert.equal(place.city,'深圳');assert.equal(place.modelKey,place.id);assert.equal(place.kind,'exploration');
+    assert.match(place.source,/^https:\/\//);assert.ok(place.aliases.length>0);
+    assert.ok(['landmark','culture'].includes(place.category));
+    for(const key of ['coords','position','dayIndex','minutes','cost','availability'])assert.equal(Object.hasOwn(place,key),false);
+  }
+});
+
+test('Shenzhen aliases match only their named building and keep accepted places out of exploration', () => {
+  const aliases=[['平安国际金融中心','shenzhen-pingan-finance'],['京基一百大厦','shenzhen-kk100'],['信兴广场','shenzhen-diwang'],['市民中心','shenzhen-civic-center'],['中国华润大厦（春笋）','shenzhen-china-resources-tower'],['Shenzhen Bay Culture Square','shenzhen-bay-culture']];
+  for(const [name,id] of aliases){
+    assert.equal(exploration.getExplorationLandmark(' 深圳市 ',name)?.id,id);
+    const acceptedStops=[{id:'ai-generated-id',city:'深圳',name}],before=JSON.stringify(acceptedStops);
+    assert.equal(getExplorationLandmarks('深圳',{acceptedStops}).some(place=>place.id===id),false);
+    assert.equal(JSON.stringify(acceptedStops),before);
+    assert.equal(exploration.getExplorationLandmark('苏州',name),null);
+  }
+  for(const name of ['平安金融中心南塔','KK MALL','华润金融大厦','市民中心广场','深圳湾体育中心','春茧','广场'])assert.equal(exploration.getExplorationLandmark('深圳',name),null,name);
+  assert.deepEqual(getExplorationLandmarks('深圳',{category:'culture'}).map(place=>place.id),['shenzhen-bay-culture']);
+  assert.deepEqual(getExplorationLandmarks('深圳',{density:'itinerary'}),[]);
+  const excluded=getExplorationLandmarks('深圳',{excludedPlaces:['春笋'],excludedIds:['shenzhen-pingan-finance']});
+  assert.equal(excluded.length,4);assert.equal(excluded.some(place=>['shenzhen-china-resources-tower','shenzhen-pingan-finance'].includes(place.id)),false);
+});
+
 test('detailed exploration expands the pool and filters independently by landmark category', () => {
   const detailed = getExplorationLandmarks('广州', {density: 'detailed'});
   assert.ok(detailed.length >= 20 && detailed.length <= 30);
@@ -80,7 +109,7 @@ test('accepted custom stop names and full aliases do not reappear as exploration
 
 test('Guangzhou city suffix and spacing normalize while unsupported destinations have no invented pool', () => {
   assert.equal(getExplorationLandmarks(' 广州市 ').length, 12);
-  for (const city of ['广州市天河区', '深圳', '', null, undefined]) {
+  for (const city of ['广州市天河区', '宁波', '', null, undefined]) {
     assert.deepEqual(getExplorationLandmarks(city), []);
   }
 });

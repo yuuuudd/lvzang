@@ -6,7 +6,7 @@ import {getExplorationLandmarks} from '../public/src/travel-map-exploration.js';
 import {sdkSource} from './fixtures/amap-sdk.js';
 
 // Coordinates here are deliberately synthetic fixtures; production coordinates come from AMap.
-const scopes={杭州:{name:'杭州市',adcode:'330100',level:'city',center:[120.15,30.27]},苏州:{name:'苏州市',adcode:'320500',level:'city',center:[120.58,31.3]},北京:{name:'北京市',adcode:'110000',level:'city',center:[116.4,39.9]},上海:{name:'上海市',adcode:'310000',level:'city',center:[121.47,31.23]},成都:{name:'成都市',adcode:'510100',level:'city',center:[104.06,30.67]},西藏:{name:'西藏自治区',adcode:'540000',level:'province',center:[91.13,29.65]},拉萨:{name:'拉萨市',adcode:'540100',level:'city',center:[91.13,29.65]}};
+const scopes={杭州:{name:'杭州市',adcode:'330100',level:'city',center:[120.15,30.27]},苏州:{name:'苏州市',adcode:'320500',level:'city',center:[120.58,31.3]},深圳:{name:'深圳市',adcode:'440300',level:'city',center:[114.06,22.54]},北京:{name:'北京市',adcode:'110000',level:'city',center:[116.4,39.9]},上海:{name:'上海市',adcode:'310000',level:'city',center:[121.47,31.23]},成都:{name:'成都市',adcode:'510100',level:'city',center:[104.06,30.67]},西藏:{name:'西藏自治区',adcode:'540000',level:'province',center:[91.13,29.65]},拉萨:{name:'拉萨市',adcode:'540100',level:'city',center:[91.13,29.65]}};
 const fixtures={};
 for(const [city,scope] of Object.entries(scopes))for(const [index,stop] of getExplorationLandmarks(city,{density:'detailed'}).entries()){
  const queryCity=scope.level==='province'?scope.adcode:city;
@@ -70,5 +70,5 @@ try{
  await page.locator('.map-search-choice').first().click();
  assert.equal(await page.locator('.map-marker[data-landmark-kind="hz-leifeng-tower"]').count(),1,'Alias-only AI identity is shared by positioning, models and search');
  assert.deepEqual(errors,[]);
- console.log('PASS: 6 destinations + Lhasa scope, distinct models, provider coordinates, density, AI-ID resolution, search deduplication and no implicit trip edits.');
+ console.log(`PASS: ${Object.keys(scopes).length} destination scopes, distinct models, provider coordinates, density, AI-ID resolution, search deduplication and no implicit trip edits.`);
 }finally{await browser.close();await new Promise(resolve=>server.close(resolve));}

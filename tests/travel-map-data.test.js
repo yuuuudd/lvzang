@@ -17,6 +17,77 @@ const poi = (values = {}) => ({
   ...values,
 });
 
+const shenzhenRegion={name:'深圳市',level:'city',adcode:'440300'};
+// Minimal public POI fields from the live AMap check; IDs are synthetic test IDs.
+const shenzhenExactFixtures=[
+  {name:'地王大厦',aliases:['深圳地王大厦','信兴广场','信兴广场深圳地王商业大厦'],pois:[
+    {id:'diwang-main',name:'地王大厦',cityname:'深圳市',pname:'广东省',adcode:'440303',location:[114.10991,22.542397]},
+    {id:'diwang-office',name:'地王大厦-写字楼',cityname:'深圳市',pname:'广东省',adcode:'440303',location:[114.1107,22.54283]},
+    {id:'diwang-alias',name:'信兴广场',cityname:'深圳市',pname:'广东省',adcode:'440303',location:[114.10991,22.542397]}
+  ]},
+  {name:'深圳市民中心',aliases:['市民中心','深圳市市民中心'],pois:[
+    {id:'civic-main',name:'深圳市民中心',cityname:'深圳市',pname:'广东省',adcode:'440304',location:[114.059614,22.543673]},
+    {id:'civic-station',name:'市民中心(地铁站)',cityname:'深圳市',pname:'广东省',adcode:'440304',location:[114.06097,22.541834]},
+    {id:'civic-alias',name:'市民中心',cityname:'深圳市',pname:'广东省',adcode:'440304',location:[114.058533,22.544125]}
+  ]}
+];
+
+test('unique full canonical POI names outrank aliases for the real Shenzhen building responses',()=>{
+  for(const fixture of shenzhenExactFixtures){
+    const input={city:'深圳',name:fixture.name,aliases:fixture.aliases,region:shenzhenRegion},before=JSON.stringify(fixture);
+    for(const pois of [fixture.pois,[...fixture.pois].reverse()]){
+      const result=selectAmapPlace(pois,input);
+      assert.equal(result.status,'matched',fixture.name);
+      assert.equal(result.place.id,fixture.pois[0].id);
+      assert.deepEqual(result.place.position,fixture.pois[0].location);
+      assert.equal(result.candidates.length,fixture.pois.length,'The other provider candidates remain available for manual inspection');
+    }
+    assert.equal(JSON.stringify(fixture),before);
+  }
+});
+
+test('multiple canonical names stay ambiguous even at equal coordinates and with one unique alias',()=>{
+  const fixture=shenzhenExactFixtures[0];
+  for(const location of [fixture.pois[0].location,[114.15,22.56]]){
+    const result=selectAmapPlace([...fixture.pois,{...fixture.pois[0],id:'different-main-id',location}],{city:'深圳',name:fixture.name,aliases:fixture.aliases,region:shenzhenRegion});
+    assert.equal(result.status,'ambiguous');
+    assert.equal(result.place,undefined,'A unique alias or coincident point must not resolve a duplicate full name');
+    assert.equal(result.candidates.length,4);
+  }
+});
+
+test('full branch names keep their qualifiers when a generic alias also matches',()=>{
+  const branches=[
+    poi({id:'chosen-branch',name:'测试餐厅（东门店）',cityname:'深圳市',adcode:'440303'}),
+    poi({id:'generic-restaurant',name:'测试餐厅',cityname:'深圳市',adcode:'440303'}),
+    poi({id:'different-branch',name:'测试餐厅（西门店）',cityname:'深圳市',adcode:'440305'})
+  ];
+  const input={name:'测试餐厅(东门店)',city:'深圳',aliases:['测试餐厅'],region:shenzhenRegion};
+  const result=selectAmapPlace(branches,input);
+  assert.equal(result.status,'matched');assert.equal(result.place.id,'chosen-branch');
+  assert.equal(selectAmapPlace([branches[2]],{...input,aliases:[]}).status,'ambiguous','Another branch never counts as the fully qualified requested name');
+  assert.equal(selectAmapPlace([...branches,{...branches[0],id:'second-east-branch'}],input).status,'ambiguous');
+});
+
+test('canonical priority still requires a confirmed destination and keeps unknown-location uncertainty',()=>{
+  const fixture=shenzhenExactFixtures[0],input={city:'深圳',name:fixture.name,aliases:fixture.aliases,region:shenzhenRegion};
+  const unknown={...fixture.pois[0],cityname:'',pname:'',adcode:''};
+  assert.equal(selectAmapPlace([unknown,fixture.pois[2]],input).status,'ambiguous','A known alias cannot bypass an unconfirmed canonical city');
+  const outside={...fixture.pois[0],cityname:'广州市',adcode:'440106'};
+  const localAlias=selectAmapPlace([outside,fixture.pois[2]],input);
+  assert.equal(localAlias.status,'matched');assert.equal(localAlias.place.id,'diwang-alias');
+  const badCoordinate={...fixture.pois[0],location:[null,22.54]};
+  assert.equal(selectAmapPlace([badCoordinate,fixture.pois[2]],input).place.id,'diwang-alias','Invalid coordinates never gain priority from their name');
+});
+
+test('alias fallback remains exact and unique when the full canonical name is absent',()=>{
+  const fixture=shenzhenExactFixtures[0],input={city:'深圳',name:fixture.name,aliases:fixture.aliases,region:shenzhenRegion};
+  assert.equal(selectAmapPlace([fixture.pois[1],fixture.pois[2]],input).place.id,'diwang-alias');
+  assert.equal(selectAmapPlace([fixture.pois[2],{...fixture.pois[2],id:'other-alias-id',name:'深圳地王大厦'}],input).status,'ambiguous');
+  assert.equal(selectAmapPlace([fixture.pois[1]],input).status,'ambiguous','An office/parking suffix is not a full exact name or declared alias');
+});
+
+
 test('province destinations accept POIs with matching provider province evidence, not unrelated cities',()=>{
  const result=selectAmapPlace([
   poi({id:'tibet',name:'布达拉宫',cityname:'拉萨市',pname:'西藏自治区',adcode:'540102',location:[91.118,29.654]}),
