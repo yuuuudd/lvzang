@@ -1,5 +1,5 @@
 import {selectAmapPlace,selectAmapDistrict,mapDestinationKey,parseAmapRoute,amapNavigationUrl} from './travel-map-data.js';
-import {createLandmarkMarker,setLandmarkState} from './travel-map-landmarks.js';
+import {createLandmarkMarker,setLandmarkState,hasLandmarkModel} from './travel-map-landmarks.js';
 import {layoutLandmarks} from './travel-map-layout.js';
 import {createJourneyInspector} from './travel-map-journey.js';
 import {getExplorationLandmarks,getExplorationLandmark} from './travel-map-exploration.js';
@@ -97,31 +97,43 @@ export function createTravelMap() {
   leaders.classList.add('landmark-leaders');
   leaders.setAttribute('aria-hidden', 'true');
   surface.append(leaders);
-  let layoutFrame = null;
+  let layoutFrame = null, markerLayoutKey = null;
 
   function layoutMarkers() {
     if (!map?.lngLatToContainer || !sdk?.Pixel) return;
     const width = viewport.clientWidth, height = viewport.clientHeight;
     if (!width || !height) return;
+    const zoom = Number(map.getZoom?.());
+    const presentation = Number.isFinite(zoom) && zoom < 14 ? 'overview' : Number.isFinite(zoom) && zoom < 16 ? 'nearby' : 'detail';
+    const presentationChanged = surface.dataset.landmarkZoom !== presentation;
+    surface.dataset.landmarkZoom = presentation;
+    const scale = Number.isFinite(zoom) ? Math.min(1, 2 ** ((zoom - 17) / 7)).toFixed(4) : '1';
+    const sizeChanged = surface.style.getPropertyValue('--landmark-scale') !== scale;
+    surface.style.setProperty('--landmark-scale', scale);
     const items = [...markerById].map(([id, {content}]) => {
       const point = map.lngLatToContainer(resolved.get(id).position);
       return {id, x: point.x ?? point.getX(), y: point.y ?? point.getY(), width: content.offsetWidth, height: content.offsetHeight};
     });
     const caption = document.getElementById('map-landmark-caption');
     const top = Math.max(90, Math.ceil((caption.getBoundingClientRect().bottom - viewport.getBoundingClientRect().top) / (viewport.getBoundingClientRect().width / width)) + 12);
-    // Keep the collision-free offsets intact: clipping each displacement again
-    // makes transparent button bounds overlap. Leaders retain the true POI anchor.
-    const offsets = density === 'detailed' ? items.map(item=>({id:item.id,dx:0,dy:0})) : layoutLandmarks(items, {width, height, top, bottom: 32, gap: 12});
+    // Pan translates the map and POIs together. Do not pack against viewport
+    // edges on every mapmove: changing offsets then makes buildings slide over
+    // the ground or remain pinned to the screen while their POIs move away.
+    // Repack only when marker sizes, zoom, orientation or available space change.
+    const nextLayoutKey = JSON.stringify([zoom, map.getPitch?.(), map.getRotation?.(), width, height, top, density, items.map(({id,width,height})=>[id,width,height])]);
+    const overview = presentation === 'overview';
+    const offsets = nextLayoutKey === markerLayoutKey ? items.map(({id})=>({id,dx:markerById.get(id).dx??0,dy:markerById.get(id).dy??0})) : overview || density === 'detailed' ? items.map(item=>({id:item.id,dx:0,dy:0})) : layoutLandmarks(items, {width, height, top, bottom: 32, gap: 12});
+    markerLayoutKey = nextLayoutKey;
     const nodes = [];
     leaders.setAttribute('viewBox', `0 0 ${width} ${height}`);
     for (const {id, dx, dy} of offsets) {
       const item = items.find(point => point.id === id), marker = markerById.get(id);
       if (!item || !marker) continue;
-      if (marker.dx !== dx || marker.dy !== dy) {
+      if (presentationChanged || sizeChanged || marker.dx !== dx || marker.dy !== dy) {
         marker.marker.setOffset?.(new sdk.Pixel(dx, dy));
         marker.dx = dx; marker.dy = dy;
       }
-      if (item.x < 0 || item.x > width || item.y < 0 || item.y > height) continue;
+      if (overview || item.x < 0 || item.x > width || item.y < 0 || item.y > height) continue;
       if (Math.hypot(dx, dy) > 2) {
         const line = document.createElementNS(svgNamespace, 'line');
         for (const [attribute, value] of Object.entries({x1:item.x, y1:item.y, x2:item.x+dx, y2:item.y+dy})) line.setAttribute(attribute, value);
@@ -162,7 +174,7 @@ export function createTravelMap() {
         zIndex: 120, extData: {kind: 'comparison'},
       });
       map.add(selectionLine);
-      if (fitView) map.setFitView([selectionLine], true, [135, 70, 80, 80], 17);
+      if (fitView) {markerLayoutKey = null; map.setFitView([selectionLine], true, [135, 70, 80, 80], 17);}
     },
     highlight(selection) {
       for (const [id, marker] of markerById) setLandmarkState(marker.content, {
@@ -184,6 +196,7 @@ export function createTravelMap() {
   function clear() {
     if (layoutFrame !== null) {cancelAnimationFrame(layoutFrame); layoutFrame = null;}
     leaders.replaceChildren();
+    markerLayoutKey = null;
     clearSelectedRoute();
     map?.clearMap();
     locationMarker = null;
@@ -255,12 +268,14 @@ export function createTravelMap() {
     return mapReadyPromise;
   }
   function fit({all = false} = {}) {
+    markerLayoutKey = null;
     // Automatic framing follows the active day. City-wide exploration and
     // other days remain available without shrinking nearby itinerary buildings.
     const focusStops = currentPlan.stops.length ? currentPlan.stops : landmarkStops.filter(stop => stop.kind === 'exploration');
     const focusMarkers = all ? markers : focusStops.map(stop => markerById.get(stop.id)?.marker).filter(Boolean);
     if (focusMarkers.length === 1) map.setZoomAndCenter(17, focusMarkers[0].getPosition());
     else if (focusMarkers.length > 1) map.setFitView(focusMarkers, true, [135, 60, 75, 75], 17);
+    else if (currentDestination) map.setZoomAndCenter(currentDestination.zoom,currentDestination.position);
     scheduleLayout();
   }
   async function destinationArea(city) {
@@ -278,7 +293,15 @@ export function createTravelMap() {
     acceptedStops=[...new Map(merged.filter(stop=>stop.kind!=='exploration').map(stop=>[stop.id,stop])).values()];
     const discoveries=showExploration?getExplorationLandmarks(plan.city,{acceptedStops,excludedPlaces,excludedIds,density,category}):[];
     const searched=[...searchedPlaces.values()].map(item=>item.stop).filter(stop=>!acceptedStops.some(accepted=>sameLandmark(plan.city,accepted,stop)));
-    landmarkStops=[...new Map([...acceptedStops,...discoveries,...searched].map(stop=>[stop.id,stop])).values()];
+    landmarkStops=[...new Map([...acceptedStops,...discoveries,...searched].map(stop=>[stop.id,{...stop,city:stop.city||plan.city}])).values()];
+    const hasModels=landmarkStops.some(hasLandmarkModel),hasCatalog=getExplorationLandmarks(plan.city,{density:'detailed'}).length>0;
+    document.getElementById('map-title').textContent=`${plan.city} · ${hasModels?'立体地标':'高德地图'}`;
+    const caption=document.getElementById('map-landmark-caption');
+    caption.replaceChildren(element('span',`拖动地图 · 点击${hasModels?'建筑或地点':'地点'}选起终点`));
+    if(hasModels)caption.append(document.createElement('br'),element('span','微缩建筑示意 · 连线指向真实位置'));
+    viewport.setAttribute('aria-label','高德地图，拖动平移并缩放；点击地点选择起点和终点');
+    fitButton.textContent=landmarkStops.length?'显示当前地点':'返回目的地';
+    explorationButton.hidden=!hasCatalog;
   }
   function showCurrentLocation() {
     if (!currentLocation || !map || locationMarker) return;
@@ -354,11 +377,11 @@ export function createTravelMap() {
   async function locate(stop, city, token) {
     const region=currentDestination;
     const known=catalogLandmark(city,stop);
-    const aliases=[...(stop.aliases||[]),...(known?.aliases||[]),...(known?[known.name]:[])];
+    const aliases=[stop.name,...(stop.aliases||[]),...(known?.aliases||[])];
     const key = lookupKey(city, stop);
     if (places.has(key)) return confirm(stop, places.get(key), token);
     if (!placeRequests.has(key)) placeRequests.set(key, search(known?.name||stop.name, city).then(result => {
-      const selection = selectAmapPlace(result.poiList?.pois || [], {name: stop.name, city, aliases,region});
+      const selection = selectAmapPlace(result.poiList?.pois || [], {name: known?.name||stop.name, city, aliases,region});
       if (selection.status === 'matched') places.set(key, selection.place);
       return selection;
     }).finally(() => placeRequests.delete(key)));
@@ -410,7 +433,7 @@ export function createTravelMap() {
     const needsDestinationView=!map||!currentPlan||cityChanged;
     const preserveSelection = Boolean(options.preserveSelection && !cityChanged);
     if (!preserveSelection) cancelLocation();
-    if (cityChanged) {currentDestination=null;searchedPlaces.clear();currentLocation=null;++searchToken;searchResults.replaceChildren();searchInput.value='';searchStatus.textContent='精选目录并非目的地所有地点；可以用高德搜索补充。';}
+    if (cityChanged) {currentDestination=null;searchedPlaces.clear();currentLocation=null;++searchToken;searchResults.replaceChildren();searchInput.value='';searchStatus.textContent='可搜索当地景点、餐厅或商圈，点击结果在地图上查看。';}
     currentPlan = plan;
     searchInput.placeholder=`搜索${plan.city}的景点、餐厅或商圈`;searchInput.setAttribute('aria-label',`搜索${plan.city}的地点`);
     membershipChange = options.onMembershipChange || null;
@@ -511,7 +534,7 @@ export function createTravelMap() {
           searchedPlaces.set(stop.id,{stop,place});places.set(lookupKey(city,stop),place);
           await render(currentPlan,viewOptions(true));
           if(version!==searchToken)return;
-          cameraMoved=true;map.setZoomAndCenter?.(16,place.position);journey.choose(stop.id);searchResults.replaceChildren();
+          cameraMoved=true;markerLayoutKey=null;map.setZoomAndCenter?.(16,place.position);journey.choose(stop.id);searchResults.replaceChildren();
           searchStatus.textContent=`已定位${place.name}。可比较路程，也可明确加入行程。`;
         });
         choice.classList.add('map-search-choice');searchResults.append(choice);

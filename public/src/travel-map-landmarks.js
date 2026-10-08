@@ -1,8 +1,9 @@
 import {makeSouvenir} from './souvenir-mesh.js';
+import {places as planningPlaces} from './travel-catalog.js';
 import {getExplorationLandmark} from './travel-map-exploration.js';
 import {buildLandmarkGeometry,hasLandmarkGeometry} from './travel-landmark-geometry.js';
 
-// Miniature architecture only. The map controller supplies verified POI positions.
+// Dedicated miniature architecture and ordinary pins share verified POI positions.
 // A static orthographic triangle renderer avoids a WebGL context for every marker.
 const WIDTH=128,HEIGHT=124;
 const geometryCache=new Map();
@@ -30,7 +31,12 @@ function builder(){
     function face(a,b,c,tone){const normal=cross(subtract(b,a),subtract(c,a)),middle=a.map((value,axis)=>(value+b[axis]+c[axis])/3-center[axis]);if(dot(normal,middle)<0)tri(a,c,b,tone);else tri(a,b,c,tone);}
     for(let index=0;index<sides;index++){const next=(index+1)%sides,tone=index%3===0?color.map(value=>Math.min(255,value+13)):color;face(rings[0][index],rings[0][next],rings[1][next],tone);face(rings[0][index],rings[1][next],rings[1][index],tone);face(rings[1][index],rings[1][next],top,tone);}
   }
-  return {tri,box,rod,pebble,triangles};
+  function roof(x,y,z,width,height,depth,color){
+    const vertices=[[x-width/2,y,z-depth/2],[x+width/2,y,z-depth/2],[x,y+height,z-depth/2],[x-width/2,y,z+depth/2],[x+width/2,y,z+depth/2],[x,y+height,z+depth/2]];
+    tri(vertices[0],vertices[2],vertices[1],color);tri(vertices[3],vertices[4],vertices[5],color);
+    for(const [a,b,c,d]of [[0,1,4,3],[1,2,5,4],[2,0,3,5]]){tri(vertices[a],vertices[b],vertices[c],color);tri(vertices[a],vertices[c],vertices[d],color);}
+  }
+  return {tri,box,rod,pebble,roof,triangles};
 }
 
 function museum(){
@@ -123,7 +129,7 @@ function youthPalace(){
 }
 
 function commercial(){
-  // A shared shopping-place icon, not a reconstruction of any individual mall.
+  // Shared ground-building form for trusted shopping places, not an exact reconstruction.
   const shape=builder();shape.box(0,0,0,68,2,46,palette.stone);
   shape.box(0,2,0,57,13,34,palette.sand);shape.box(0,15,0,58,2,35,palette.silver);
   shape.box(-17,17,-7,21,11,20,palette.glass);shape.box(18,17,-5,18,8,23,palette.stone);
@@ -133,26 +139,80 @@ function commercial(){
   shape.box(20,25,-4,16,1,21,palette.red);shape.box(-17,28,-7,22,1,21,palette.silver);
   return shape.triangles;
 }
+function groundTree(shape,x,z){
+  shape.rod([x,2,z],[x,11,z],.7,palette.dark);const start=shape.triangles.length;shape.pebble(x,z,10,8,10,palette.green);
+  for(const point of new Set(shape.triangles.slice(start).flatMap(triangle=>triangle.points)))point[1]+=6;
+}
+function street(){
+  const shape=builder();shape.box(0,0,0,74,2,46,palette.stone);shape.box(0,2,0,68,.7,8,palette.sand);
+  for(const z of [-13,13])for(const [index,x]of [-25,-8,9,26].entries()){
+    const height=11+index%3*3;shape.box(x,2,z,13,height,12,index%2?palette.stone:[234,223,201]);shape.roof(x,2+height,z,16,5,15,palette.dark);
+    for(const side of [-1,1])shape.box(x+side*3,7,z+6.1,2.5,4,.4,palette.glass);
+    shape.box(x,2,z-6.1,3,7,.4,palette.dark);
+  }
+  return shape.triangles;
+}
+function park(){
+  const shape=builder();shape.box(0,0,0,74,2,48,palette.stone);shape.box(0,2,0,68,.6,42,[151,177,129]);
+  shape.box(0,2.6,9,61,.5,3,palette.sand);shape.box(-12,2.6,0,3,.5,36,palette.sand);
+  shape.pebble(10,-6,30,1.2,18,[133,184,195]);shape.box(-23,3,-9,12,8,11,palette.stone);shape.roof(-23,11,-9,16,6,15,palette.dark);
+  for(const [x,z]of [[-28,14],[24,14],[27,-15],[-4,-16]])groundTree(shape,x,z);
+  return shape.triangles;
+}
+function culturalBuilding(traditional=false){
+  const shape=builder();shape.box(0,0,0,72,2,48,palette.stone);
+  for(let step=0;step<3;step++)shape.box(0,2+step,21-step*2,38,1,6,palette.sand);
+  shape.box(0,3,0,34,17,25,traditional?palette.sand:palette.silver);
+  for(const x of [-25,25]){shape.box(x,3,1,14,11,24,palette.stone);if(traditional)shape.roof(x,14,1,18,5,28,palette.dark);}
+  if(traditional){shape.roof(0,20,0,43,9,31,palette.dark);for(const x of [-14,-7,0,7,14])shape.box(x,3,13,1.2,15,1.2,palette.red);}
+  else{shape.box(0,20,0,38,2,29,palette.silver);shape.box(0,5,12.8,29,12,.7,palette.glass);}
+  shape.box(0,3,13,7,10,.8,palette.dark);return shape.triangles;
+}
+function bridge(){
+  const shape=builder();shape.box(0,0,0,74,2,46,palette.stone);shape.box(0,2,0,68,.7,35,[133,184,195]);
+  for(const x of [-29,29])shape.box(x,3,0,10,6,20,palette.stone);shape.box(0,8,0,61,2,12,palette.silver);
+  for(const z of [-7,7])for(let index=0;index<12;index++){
+    const x=-29+index*58/12,nextX=-29+(index+1)*58/12,y=11+14*Math.sin(index/12*Math.PI),nextY=11+14*Math.sin((index+1)/12*Math.PI);
+    shape.rod([x,y,z],[nextX,nextY,z],.9,palette.silver);shape.rod([x,10,z],[x,y,z],.35,palette.silver,4);
+  }
+  return shape.triangles;
+}
 
-function genericPlace(){const shape=builder();shape.box(0,0,0,31,3,26,palette.stone);shape.rod([0,3,0],[0,22,0],2,palette.green,10);shape.pebble(0,0,18,15,15,palette.green);return shape.triangles;}
+const guangzhouModelKeys=new Set(['gz-museum','gz-tower','gz-square','gz-opera','gz-library','gz-ifc','gz-ctf','gz-youth-palace']);
+const identityKey=value=>String(value||'').normalize('NFKC').replace(/\s+/g,'').toLowerCase();
+const destinationKey=value=>identityKey(value).replace(/市$/,'');
 export function resolveLandmarkKind(stop={}){
-  if(['gz-museum','gz-tower','gz-square','gz-opera','gz-library','gz-ifc','gz-ctf','gz-youth-palace'].includes(stop.id))return stop.id;
-  if(stop.city==='广州'){const name=String(stop.name||'');if(/广东省?博物馆|粤博/.test(name))return 'gz-museum';if(/广州塔|小蛮腰/.test(name))return 'gz-tower';if(/花城广场/.test(name))return 'gz-square';if(/广州大剧院/.test(name))return 'gz-opera';if(/广州图书馆/.test(name))return 'gz-library';if(/广州国际金融中心|广州西塔/.test(name))return 'gz-ifc';if(/广州周大福金融中心|广州东塔/.test(name))return 'gz-ctf';if(/第?二少年宫/.test(name))return 'gz-youth-palace';}
+  stop=stop||{};
   // Generated itinerary IDs and provider search IDs are not catalog identities.
   // Only a city-scoped trusted name/alias match may select a dedicated model.
   const curated=[stop.id,stop.name,...(Array.isArray(stop.aliases)?stop.aliases:[])].map(value=>getExplorationLandmark(stop.city,value)).find(Boolean);
-  if(curated?.modelKey&&hasLandmarkGeometry(curated.modelKey))return curated.modelKey;
-  if(curated?.category==='shopping')return 'commercial';
-  return hasLandmarkGeometry(stop.id)?'place':stop.id||'place';
+  const key=curated?.modelKey||curated?.id;
+  if(guangzhouModelKeys.has(key)||hasLandmarkGeometry(key))return key;
+  if(curated){
+    if(['gz-beijing-road','gz-yongqingfang','gz-shamian'].includes(curated.id))return 'ground-street';
+    if(curated.category==='shopping')return 'commercial';
+    if(curated.category==='park')return 'ground-park';
+    if(curated.id==='gz-haixin-bridge')return 'ground-bridge';
+    return ['gz-chen-clan-hall','gz-zhongshan-memorial','gz-cantonese-opera-museum'].includes(curated.id)?'ground-hall':'ground-culture';
+  }
+  const names=[stop.id,stop.name,...(Array.isArray(stop.aliases)?stop.aliases:[])].map(identityKey).filter(Boolean);
+  const legacy=planningPlaces.find(place=>destinationKey(place.city)===destinationKey(stop.city)&&[place.id,place.name,...place.aliases].some(value=>names.includes(identityKey(value))));
+  return legacy?.id||'place';
 }
+export function hasLandmarkModel(stop){return resolveLandmarkKind(stop)!=='place';}
 export function landmarkGeometry(stop){
-  const key=resolveLandmarkKind(stop);if(geometryCache.has(key))return {kind:key,triangles:geometryCache.get(key)};
+  const key=resolveLandmarkKind(stop);if(key==='place')return {kind:key,triangles:null};
+  if(geometryCache.has(key))return {kind:key,triangles:geometryCache.get(key)};
   let triangles;
   if(key==='gz-museum')triangles=museum();else if(key==='gz-tower')triangles=tower();else if(key==='gz-square')triangles=square();else if(key==='gz-opera')triangles=opera();
   else if(key==='gz-library')triangles=library();else if(key==='gz-ifc')triangles=ifc();else if(key==='gz-ctf')triangles=ctf();else if(key==='gz-youth-palace')triangles=youthPalace();
   else if(key==='commercial')triangles=commercial();
+  else if(key==='ground-street')triangles=street();
+  else if(key==='ground-park')triangles=park();
+  else if(key==='ground-hall'||key==='ground-culture')triangles=culturalBuilding(key==='ground-hall');
+  else if(key==='ground-bridge')triangles=bridge();
   else if(hasLandmarkGeometry(key))triangles=buildLandmarkGeometry(key);
-  else try{const model=makeSouvenir(key==='sz-shantang'?'sz-pingjiang':key);triangles=Array.from({length:model.mesh.length/9},(_,index)=>({points:Array.from({length:3},(_,vertex)=>Array.from(model.mesh.slice(index*9+vertex*3,index*9+vertex*3+3))),color:Array.from(model.colors.slice(index*9,index*9+3))}));}catch{if(!geometryCache.has('place'))geometryCache.set('place',genericPlace());return {kind:'place',triangles:geometryCache.get('place')};}
+  else{const model=makeSouvenir(key);triangles=Array.from({length:model.mesh.length/9},(_,index)=>({points:Array.from({length:3},(_,vertex)=>Array.from(model.mesh.slice(index*9+vertex*3,index*9+vertex*3+3))),color:Array.from(model.colors.slice(index*9,index*9+3))}));}
   geometryCache.set(key,triangles);return {kind:key,triangles};
 }
 
@@ -173,11 +233,22 @@ function render(canvas,triangles){
 export function createLandmarkMarker(stop,{index=0,dayIndex=null,isToday=true,isExample=false,compact=false}={}){
   stop=stop||{};const name=String(stop.name||'旅行地点').slice(0,120),exploration=stop.kind==='exploration',shortNames={'gz-library':'广州图书馆','gz-ifc':'广州西塔','gz-ctf':'广州东塔','gz-youth-palace':'第二少年宫'},displayName=String(stop.shortName||(exploration&&shortNames[stop.id])||name).slice(0,120),number=Number.isInteger(index)&&index>=0?index+1:1,day=Number.isInteger(dayIndex)&&dayIndex>0?dayIndex:null;
   const button=document.createElement('button');button.type='button';button.className=`map-marker landmark-marker ${exploration?'is-exploration':isToday?'is-today':'is-other-day'}${compact?' is-compact':''}`;button.dataset.stop=String(stop.id||'');
-  const model=document.createElement('span');model.className='landmark-model';const canvas=document.createElement('canvas');canvas.className='landmark-canvas';canvas.setAttribute('aria-hidden','true');model.append(canvas);
+  let model=null,kind='place';
+  try{
+    const result=landmarkGeometry(stop);
+    if(result.triangles){const canvas=document.createElement('canvas');canvas.className='landmark-canvas';canvas.setAttribute('aria-hidden','true');if(render(canvas,result.triangles)){model=document.createElement('span');model.className='landmark-model';model.append(canvas);kind=result.kind;}}
+  }catch{}
+  button.dataset.landmarkKind=kind;button.dataset.markerStyle=model?'model':'pin';
   const label=document.createElement('span');label.className='landmark-label';const title=document.createElement('span');title.className='landmark-name';title.textContent=displayName;const context=document.createElement('span');context.className='landmark-day';context.textContent=exploration?'探索 · 未入行程':isExample?'示例 · 未加入':'已在行程 · '+(day?`第${day}天`:`第${number}站`);label.append(title,context);
-  const endpoint=document.createElement('span');endpoint.className='landmark-endpoint';endpoint.hidden=true;button.append(model,label,endpoint);
-  button.dataset.landmarkLabel=exploration?`${name}，探索地标，未加入行程`:isExample?`${name}，示例地点，未加入行程`:`${name}，已在行程，${day?`第${day}天，`:''}第${number}站，${isToday?'当天地点':'其他日期地点'}`;
-  try{const result=landmarkGeometry(stop);button.dataset.landmarkKind=result.kind;if(!render(canvas,result.triangles))button.classList.add('has-no-model');}catch{button.classList.add('has-no-model');}
+  const endpoint=document.createElement('span');endpoint.className='landmark-endpoint';endpoint.hidden=true;
+  if(model)button.append(model,label,endpoint);
+  else{
+    button.classList.add('is-pin');
+    const pin=document.createElementNS('http://www.w3.org/2000/svg','svg');pin.classList.add('landmark-pin');pin.setAttribute('viewBox','0 0 32 40');pin.setAttribute('aria-hidden','true');pin.setAttribute('focusable','false');
+    const outline=document.createElementNS('http://www.w3.org/2000/svg','path');outline.setAttribute('d','M16 1C8.3 1 2 7.3 2 15c0 10.5 14 24 14 24s14-13.5 14-24C30 7.3 23.7 1 16 1Z');outline.setAttribute('fill','currentColor');outline.setAttribute('stroke','#fff');outline.setAttribute('stroke-width','2');
+    const center=document.createElementNS('http://www.w3.org/2000/svg','circle');center.setAttribute('cx','16');center.setAttribute('cy','15');center.setAttribute('r','5');center.setAttribute('fill','#fff');pin.append(outline,center);button.append(label,pin,endpoint);
+  }
+  button.dataset.landmarkLabel=exploration?`${name}，探索${model?'地标':'地点'}，未加入行程`:isExample?`${name}，示例地点，未加入行程`:`${name}，已在行程，${day?`第${day}天，`:''}第${number}站，${isToday?'当天地点':'其他日期地点'}`;
   setLandmarkState(button);return button;
 }
 

@@ -9,7 +9,7 @@ export function createJourneyInspector({requestRoute, drawRoute, clearRoute, hig
   const panel = document.getElementById('map-journey-panel');
   const scopeNote = document.createElement('p');
   scopeNote.id = 'map-comparison-note';
-  scopeNote.textContent = '点击建筑只查看和比较路程；加入或移出行程，请使用对应按钮。';
+  scopeNote.textContent = '点击地点只查看和比较路程；加入或移出行程，请使用对应按钮。';
   panel.prepend(scopeNote);
   const name = document.getElementById('map-place-name');
   const description = document.getElementById('map-place-description');
@@ -34,11 +34,11 @@ export function createJourneyInspector({requestRoute, drawRoute, clearRoute, hig
     panel.dataset.selectionStage = selection.destinationId ? 'pair' : selection.originId ? 'origin' : 'idle';
     const focused = stops.get(selection.focusId);
     const place = places.get(selection.focusId);
-    name.textContent = focused?.name || '选择建筑，比较两地路程';
+    name.textContent = focused?.name || '选择地点，比较两地路程';
     description.textContent = place ? `${place.city} ${place.address}` : '先选起点，再选终点；可比较行程景点和探索地标。';
     day.textContent = focused?.kind === 'location' ? '当前位置 · 仅用于路程比较' : focused?.kind === 'exploration' ? '探索地标 · 未加入行程' : focused ? isExample ? '示例地点 · 未加入行程' : `已在行程${focused.dayIndex ? ` · 第${focused.dayIndex}天` : ''}` : '';
-    origin.textContent = stops.get(selection.originId)?.name || '点击建筑选择';
-    destination.textContent = stops.get(selection.destinationId)?.name || '再选一处建筑';
+    origin.textContent = stops.get(selection.originId)?.name || '点击地点选择';
+    destination.textContent = stops.get(selection.destinationId)?.name || '再选一处地点';
     const canFocus = active && Boolean(place);
     setOrigin.disabled = !canFocus;
     setDestination.disabled = !canFocus || !selection.originId || selection.focusId === selection.originId;
@@ -55,8 +55,8 @@ export function createJourneyInspector({requestRoute, drawRoute, clearRoute, hig
   function hint() {
     result.dataset.state = 'idle';
     result.textContent = selection.originId
-      ? '起点已选好，点击另一处建筑选择终点。'
-      : '点击建筑选择起点，再点另一处选择终点。';
+      ? '起点已选好，点击另一处地点选择终点。'
+      : '点击地点选择起点，再点另一处选择终点。';
   }
 
   async function calculate(force = false) {
@@ -136,8 +136,8 @@ export function createJourneyInspector({requestRoute, drawRoute, clearRoute, hig
       isExample = example;
       membershipEnabled = Boolean(allowMembership);
       scopeNote.textContent = membershipEnabled
-        ? '点击建筑只查看和比较路程；加入或移出行程，请使用对应按钮。'
-        : '点击建筑可查看和比较路程；先完成这个目的地的攻略，再增删行程地点。';
+        ? '点击地点只查看和比较路程；加入或移出行程，请使用对应按钮。'
+        : '点击地点可查看和比较路程；先完成这个目的地的攻略，再增删行程地点。';
       if (!membershipEnabled && membershipStatus) membershipStatus.textContent = '';
       const previousOrigin = selection.originId;
       selection = preserve ? reconcileJourneySelection(selection, [...stops.keys()]) : emptyJourneySelection();

@@ -104,7 +104,7 @@ function selectMapStop(id){selected=id;document.querySelectorAll('#map-markers .
 export function renderMap(plan,collection,landmarkStops=plan.stops,mapOptions={}){
   if(lastMap&&lastMap.plan.city!==plan.city){illustration=false;selected=null;}
   lastMap={plan,collection,landmarkStops,mapOptions};mapController ||= createTravelMap();
-  $('map-title').textContent=`${plan.city} · ${illustration?'可选示意图':'立体地标'}`;$('map-view-toggle').textContent=illustration?'返回高德地图':'查看示意图';$('map-view-toggle').disabled=false;
+  $('map-title').textContent=`${plan.city} · ${illustration?'可选示意图':'高德地图'}`;$('map-view-toggle').textContent=illustration?'返回高德地图':'查看示意图';$('map-view-toggle').disabled=false;
   $('route-line').replaceChildren();$('map-markers').replaceChildren();
   if(!illustration){mapController.render(plan,{landmarkStops,...mapOptions});return;}
   mapController.pause();document.querySelector('.route-map').classList.add('illustration');

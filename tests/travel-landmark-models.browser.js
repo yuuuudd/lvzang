@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {mkdir} from 'node:fs/promises';
 import {chromium} from 'playwright';
 import {createApp} from '../server.js';
+import {landmarkModelKeys} from '../public/src/travel-landmark-geometry.js';
 
 const rows=[
  ['杭州','雷峰塔','hz-leifeng-tower'],['杭州','保俶塔','hz-baochu-pagoda'],['杭州','三潭印月','hz-three-pools'],['杭州','灵隐寺','hz-lingyin-temple'],
@@ -11,7 +12,10 @@ const rows=[
  ['成都','天府熊猫塔','cd-panda-tower'],['成都','安顺廊桥','cd-anshun-bridge'],['成都','望江楼','cd-wangjiang-tower'],['成都','文殊院','cd-wenshu-monastery'],
  ['拉萨','布达拉宫','xz-potala-palace'],['拉萨','大昭寺','xz-jokhang-temple'],['拉萨','罗布林卡','xz-norbulingka'],['日喀则','扎什伦布寺','xz-tashilhunpo'],
  ['深圳','平安金融中心','shenzhen-pingan-finance'],['深圳','京基100','shenzhen-kk100'],['深圳','地王大厦','shenzhen-diwang'],['深圳','深圳市民中心','shenzhen-civic-center'],['深圳','春笋','shenzhen-china-resources-tower'],['深圳','深圳湾文化广场','shenzhen-bay-culture'],
- ['广州','广东省博物馆','gz-museum'],['广州','广州塔','gz-tower'],['广州','广州大剧院','gz-opera'],['广州','广州国际金融中心','gz-ifc']
+ ['广州','广东省博物馆','gz-museum'],['广州','广州塔','gz-tower'],['广州','广州大剧院','gz-opera'],['广州','广州国际金融中心','gz-ifc'],
+ ['广州','太古汇','commercial'],['广州','正佳广场','commercial'],['广州','永庆坊','ground-street'],['广州','越秀公园','ground-park'],['广州','陈家祠','ground-hall'],['广州','广州艺术博物院','ground-culture'],['广州','海心桥','ground-bridge'],['苏州','拙政园','sz-garden'],['杭州','西湖','hz-westlake'],
+ ['中山','孙中山故居','zhongshan-sun-residence'],['中山','孙中山纪念堂','zhongshan-memorial-hall'],['中山','中山詹园','zhongshan-zhan-garden'],['中山','缤纷幻彩摩天轮','zhongshan-skywheel'],
+ ['佛山','佛山祖庙','foshan-ancestral-temple'],['佛山','南风古灶','foshan-nanfeng-kiln'],['佛山','清晖园','foshan-qinghui-garden'],['珠海','珠海大剧院','zhuhai-grand-theatre'],['珠海','圆明新园','zhuhai-new-yuanming-palace'],['珠海','海滨泳场灯塔','zhuhai-love-post-lighthouse']
 ];
 const app=createApp({key:'',accountsEnabled:false,fetchImpl:async()=>{throw Error('No external request in model preview');}});await new Promise(resolve=>app.listen(0,'127.0.0.1',resolve));
 const browser=await chromium.launch({channel:'chrome',headless:true}),origin=`http://127.0.0.1:${app.address().port}`;
@@ -30,8 +34,16 @@ try{
    });
  },rows);
  await mkdir('artifacts/landmark-models',{recursive:true});await page.screenshot({path:'artifacts/landmark-models/contact-sheet.png',fullPage:true});
- for(const model of models){assert.equal(model.kind,model.expected,`${model.city} ${model.name}: random IDs must resolve to the dedicated model`);assert.equal(model.noModel,false,model.name);assert.ok(model.painted>250,`${model.name}: model is not blank`);}
- assert.equal(new Set(models.slice(0,29).map(model=>model.image)).size,29,'Each new landmark has a distinct rendered silhouette');
- const fallback=await page.evaluate(async()=>{const {createLandmarkMarker}=await import('/src/travel-map-landmarks.js');return createLandmarkMarker({id:'unknown-random',city:'未知城市',name:'未收录的地点'}).dataset.landmarkKind;});assert.equal(fallback,'place');
- assert.deepEqual(errors,[]);console.log(`PASS: ${models.length} dedicated landmark renders, random-ID city/name resolution, distinct nonblank silhouettes and generic fallback; contact sheet saved.`);
+ for(const model of models){assert.equal(model.kind,model.expected,`${model.city} ${model.name}: random IDs must resolve to the trusted model`);assert.equal(model.noModel,false,model.name);assert.ok(model.painted>250,`${model.name}: model is not blank`);}
+ const dedicated=models.filter(model=>landmarkModelKeys.includes(model.kind));assert.equal(dedicated.length,landmarkModelKeys.length);assert.equal(new Set(dedicated.map(model=>model.image)).size,landmarkModelKeys.length,'Every registered landmark has a distinct rendered silhouette');
+ const fallback=await page.evaluate(async()=>{
+   const {createLandmarkMarker,setLandmarkState}=await import('/src/travel-map-landmarks.js');
+   return [{id:'unknown-random',city:'未知城市',name:'未收录的地点'},{id:'ai-keyuan',city:'东莞',name:'可园'},{id:'search-songshan',city:'东莞市',name:'松山湖',kind:'exploration'}].map(stop=>{
+     const marker=createLandmarkMarker(stop,{dayIndex:2});setLandmarkState(marker,{focused:true,destination:true});
+     return {kind:marker.dataset.landmarkKind,style:marker.dataset.markerStyle,pin:!!marker.querySelector('svg.landmark-pin'),canvas:!!marker.querySelector('canvas'),model:!!marker.querySelector('.landmark-model'),type:marker.type,pressed:marker.getAttribute('aria-pressed'),current:marker.getAttribute('aria-current'),label:marker.getAttribute('aria-label'),endpoint:marker.querySelector('.landmark-endpoint').textContent};
+   });
+ });
+ for(const marker of fallback){assert.equal(marker.kind,'place');assert.equal(marker.style,'pin');assert.equal(marker.pin,true);assert.equal(marker.canvas,false);assert.equal(marker.model,false);assert.equal(marker.type,'button');assert.equal(marker.pressed,'true');assert.equal(marker.current,'location');assert.match(marker.label,/已选为终点.*当前查看/);assert.equal(marker.endpoint,'终点');}
+ assert.match(fallback[2].label,/探索地点，未加入行程/);
+ assert.deepEqual(errors,[]);console.log(`PASS: ${models.length} trusted landmark renders, random-ID city/name resolution, distinct dedicated silhouettes and ordinary SVG pins with accessible endpoint states; contact sheet saved.`);
 }finally{await browser.close();await new Promise(resolve=>app.close(resolve));}

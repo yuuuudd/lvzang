@@ -249,7 +249,158 @@ function bayCulture(){
   m.box(0,5,-13,16,5,10,[201,207,200]);for(const x of [-46,46])m.tree(x,-23);return m.triangles;
 }
 
+function sunResidence(){
+  // Cuiheng's two-storey residence: red Western-style arched verandas,
+  // pale brickwork, a pitched roof and its enclosed forecourt.
+  const m=mesh(),red=[165,57,42],brick=[195,194,170];m.base(73,58,C.stone);
+  m.box(0,2,-7,42,25,25,brick);m.roof(0,27,-7,47,29,5,[92,105,88]);
+  for(const y of [3,15]){
+    m.box(0,y,8,45,1.2,7,C.white);m.box(0,y+10,10,45,1.1,1.3,C.white);
+    for(let column=-3;column<=3;column++)m.box(column*6.6,y,10,1.2,10,1.3,red);
+    for(let bay=-3;bay<3;bay++){
+      const cx=(bay+.5)*6.6;
+      for(let segment=0;segment<6;segment++){
+        const a=segment/6*Math.PI,b=(segment+1)/6*Math.PI;
+        m.rod([cx+Math.cos(a)*2.7,y+6.5+Math.sin(a)*2.6,10],[cx+Math.cos(b)*2.7,y+6.5+Math.sin(b)*2.6,10],.7,red,5);
+      }
+    }
+  }
+  m.box(0,16,5,43,1.2,1,C.white);m.frustum(0,29,9,2.5,1,2.5,C.gold,12,.3);
+  for(const x of [-13,0,13])m.box(x,7,-19.7,3,5,.4,C.dark);
+  for(const x of [-31,31])m.box(x,2,8,1.6,6,42,C.white);
+  for(const x of [-19,19])m.box(x,2,28,22,6,1.6,C.white);
+  m.box(0,2,28,14,1.3,4,C.stone);m.tree(-24,14);m.frustum(23,2,16,4,4,4,C.stone,12);
+  return m.triangles;
+}
+function zhongshanMemorial(){
+  // Shiqi's memorial hall has a three-pavilion "mountain" facade:
+  // one taller octagonal pavilion and two lower square pavilions.
+  const m=mesh(),roof=[47,93,84],wall=[215,202,170];m.base(98,66,C.stone);
+  for(let step=0;step<4;step++)m.box(0,2+step*1.4,22-step*2,74-step*5,1.4,9,C.white);
+  m.box(0,7,-3,78,18,29,wall);m.box(0,25,-3,82,1.5,32,C.white);
+  m.windows(0,11,11.8,69,12,2);m.box(0,7,12,12,10,1,C.dark);m.box(0,20,12,16,3,1,C.gold);
+  for(const x of [-28,28]){
+    m.box(x,26,-3,17,8,18,wall);m.windows(x,28,6.2,14,6,1);
+    m.roof(x,34,-3,25,25,7,roof);m.rod([x,41,-3],[x,44,-3],.5,C.gold);
+  }
+  m.frustum(0,26,-3,12,15,12,wall,8,1,Math.PI/8);
+  m.frustum(0,41,-3,18,7,5,roof,8,1,Math.PI/8);m.frustum(0,48,-3,5,4,0,C.gold,8);
+  for(const x of [-35,-17,17,35])m.box(x,7,12,1.3,18,1.4,C.white);
+  m.box(0,7,-24,57,17,19,[173,177,158]);m.roof(0,24,-24,61,22,4,roof);
+  return m.triangles;
+}
+function zhanGarden(){
+  // Lingnan garden silhouette: grey tiled halls, covered corridors and
+  // a small pale bridge crossing a water courtyard, rather than a tower.
+  const m=mesh(),wall=[226,220,199],roof=[73,82,79];m.base(94,70,C.green);
+  m.box(15,2,6,39,1,35,C.water);m.hall(-24,2,-8,28,24,15,roof,wall);
+  m.hall(12,2,-22,44,13,10,roof,wall);m.hall(35,2,-4,12,27,8,roof,wall);
+  m.hall(-29,2,24,19,13,8,roof,wall);m.roof(-24,22,-8,22,21,5,roof);
+  m.box(11,8,6,27,1.5,7,C.white);
+  for(const x of [0,7,14,21])for(const z of [2,10]){m.box(x,9.5,z,.8,3,.8,C.white);if(x<21)m.rod([x,12,z],[x+7,12,z],.45,C.white,5);}
+  for(const x of [5,23])m.box(x,3,6,2,5,5,C.stone);
+  m.frustum(18,3,24,6.5,9,6.5,wall,6);m.frustum(18,12,24,10,5,2.5,roof,6);
+  for(const x of [-13,0,13])m.box(x,2,30,9,7,1.5,wall);
+  m.roof(0,9,30,38,8,5,roof);m.tree(-40,12);m.tree(39,-27);m.tree(-8,20);
+  return m.triangles;
+}
+function zhongshanSkywheel(){
+  // Xingzhong Plaza's rooftop wheel keeps its open spokes and capsules.
+  const m=mesh(),rim=[227,228,219],blue=[85,139,162],center=[0,57,0],r=29;m.base(80,52);
+  m.box(0,2,0,64,14,38,[212,194,158]);m.box(0,16,0,68,2,41,C.white);m.windows(0,5,19.3,55,9,2);
+  for(const x of [-20,20])for(const z of [-8,8])m.rod([x,18,z],[0,57,z*.3],1.3,blue,6);
+  for(let index=0;index<32;index++){
+    const a=index/32*Math.PI*2,b=(index+1)/32*Math.PI*2;
+    for(const z of [-3,3])m.rod([Math.cos(a)*r,center[1]+Math.sin(a)*r,z],[Math.cos(b)*r,center[1]+Math.sin(b)*r,z],.8,rim,6);
+    if(index%2===0)m.rod(center,[Math.cos(a)*r,center[1]+Math.sin(a)*r,0],.4,C.gold,5);
+    if(index%4===0){const x=Math.cos(a)*(r+1),y=center[1]+Math.sin(a)*(r+1);m.box(x,y-3,0,5,5,6,blue);m.box(x,y+2,0,5.6,.8,6.5,C.red);}
+  }
+  m.sphere(0,57,0,3,3,4,C.gold,10,6);return m.triangles;
+}
+
+function foshanTemple(){
+  // Axial grey-tiled halls, a courtyard pool and colorful ceramic ridge figures.
+  const m=mesh(),wall=[183,175,151],tile=[61,82,72];m.base(96,68,C.stone);
+  m.hall(0,3,-15,47,26,15,tile,wall);m.hall(-32,3,3,13,35,10,tile,wall);m.hall(32,3,3,13,35,10,tile,wall);
+  m.hall(0,3,25,37,12,10,tile,wall);m.box(0,3,5,19,.6,14,C.water);
+  for(const [z,y,w]of [[-15,24,34],[25,19,25]]){
+    m.box(0,y,z,w,1.4,2.2,[93,125,86]);
+    for(let x=-w/2+2;x<w/2;x+=4){m.frustum(x,y+1.4,z,1,3,.8,x%3?C.red:C.gold,6);m.sphere(x,y+4.7,z,1.2,1.1,1.2,C.white,8,5);}
+    for(const side of [-1,1])m.rod([side*w/2,y,z],[side*(w/2+4),y+4,z],.9,C.gold,6);
+  }
+  for(const x of [-12,-6,0,6,12])m.box(x,3,-1.5,1,15,1,C.red);
+  for(const x of [-39,39])m.tree(x,-25);return m.triangles;
+}
+function foshanKiln(){
+  // The long brick dragon kiln rises with the hillside under a sloping tiled shed.
+  const m=mesh(),brick=[166,117,77],tile=[77,78,69],level=x=>3+(x+40)*.25;m.base(100,54,C.stone);
+  const arch=(x,index)=>{const a=index/10*Math.PI;return [x,level(x)+Math.sin(a)*8,Math.cos(a)*8];};
+  for(let x=-40;x<40;x+=8){
+    m.box(x+4,2,0,8,level(x+8)-2,17,brick);
+    for(let i=0;i<10;i++){const a=arch(x,i),b=arch(x+8,i),c=arch(x+8,i+1),d=arch(x,i+1),center=[x+4,level(x+4),0];m.face(a,b,c,brick,center);m.face(a,c,d,brick,center);}
+    m.box(x+3,level(x+3)+2,8.3,3,3,.4,C.dark);
+  }
+  m.box(-40.4,3,0,.7,6,10,C.dark);
+  for(let x=-44;x<44;x+=8){
+    const section=value=>[[value,level(value)+11,-14],[value,level(value)+17,0],[value,level(value)+11,14]],a=section(x),b=section(x+8),center=[x+4,level(x+4),0];
+    for(let i=0;i<2;i++){m.face(a[i],b[i],b[i+1],tile,center);m.face(a[i],b[i+1],a[i+1],tile,center);}
+    for(const z of [-13,13])m.rod([x,2,z],[x,level(x)+11,z],.8,[112,96,72],6);
+    for(let step=0;step<2;step++)m.box(x+step*4,2,20,4,level(x+step*4)-1,7,C.stone);
+  }
+  m.hall(-33,2,-21,22,11,6,tile,C.white);m.tree(42,-19);return m.triangles;
+}
+function foshanQinghui(){
+  // A two-storey boat hall faces a rectangular pond, with grey-tiled garden pavilions.
+  const m=mesh(),wall=[225,218,191],tile=[76,85,80];m.base(88,68,C.green);
+  m.box(-9,2,10,44,.7,29,C.water);m.box(18,2,-6,25,3,34,C.stone);
+  m.face([5.5,5,11],[30.5,5,11],[18,5,18],C.stone,[18,1,11]);
+  m.hall(18,5,-7,22,24,10,tile,wall);m.hall(18,21,-13,18,17,9,tile,wall);
+  m.windows(18,9,5.3,20,6,1);m.windows(18,23,-4.3,16,5,1);
+  for(const x of [9,15,21,27])m.box(x,9,5.6,2.5,4,.4,[151,178,138]);
+  m.hall(-25,2,-19,23,14,10,tile,wall);m.hall(-35,2,7,9,29,7,tile,wall);
+  m.frustum(-15,3,27,6,8,6,wall,6);m.frustum(-15,11,27,10,5,2,tile,6);
+  m.box(-8,4,10,33,1.3,5,C.white);
+  for(const x of [-21,-14,-7,0,7])for(const z of [7,13]){m.box(x,5.3,z,.7,2.5,.7,C.white);if(x<7)m.rod([x,7.8,z],[x+7,7.8,z],.35,C.white,5);}
+  m.tree(-37,-27);m.tree(36,23);m.box(0,2,-31,62,6,1.5,wall);return m.triangles;
+}
+function zhuhaiTheater(){
+  // Upright white sun-and-moon shells retain their unequal size and fan-like ribs.
+  const m=mesh(),shell=[238,238,222],rib=[205,212,206];m.base(105,66,C.water);m.box(0,2,0,94,1.3,54,C.stone);
+  for(const [x,y,z,rx,ry,rz]of [[-20,36,-9,23,32,8],[27,26,11,16,22,6]]){
+    m.box(x,3,z,rx*1.4,8,rz*2.4,C.glass);m.sphere(x,y,z,rx,ry,rz,shell,24,16);
+    for(let i=1;i<12;i++){
+      const a=i/12*Math.PI,ex=rx*Math.cos(a),ey=ry*Math.sin(a),at=t=>{const vx=ex*t,vy=-ry+(ey+ry)*t;return [x+vx,y+vy,z+rz*Math.sqrt(Math.max(0,1-(vx/rx)**2-(vy/ry)**2))+.16];};
+      for(let segment=1;segment<8;segment++)m.rod(at(segment/8),at((segment+1)/8),.19,rib,4);
+    }
+  }
+  m.box(0,3,23,71,.7,10,C.white);return m.triangles;
+}
+function zhuhaiYuanming(){
+  // Golden-roofed royal halls, red colonnades and the garden's broad lake court.
+  const m=mesh();m.base(104,78,C.green);m.box(0,2,-8,86,2,49,C.white);m.box(0,2,24,49,.7,23,C.water);
+  m.hall(0,5,-15,47,25,16,C.gold,C.red);m.roof(0,31,-15,40,21,6,C.gold);
+  for(const x of [-34,34])m.hall(x,4,0,14,34,9,C.gold,C.red);
+  for(const x of [-18,-9,0,9,18])m.box(x,5,-1.8,1.3,16,1.5,C.white);
+  for(let step=0;step<4;step++)m.box(0,2+step*.75,15-step*2,17,1,6,C.white);
+  for(const x of [-24,24])for(const z of [11,18,25,32]){m.box(x,3,z,.8,3,.8,C.white);if(z<32)m.rod([x,6,z],[x,6,z+7],.4,C.white,5);}
+  m.box(0,3,24,8,1,24,C.white);for(const x of [-44,44])m.tree(x,-28);return m.triangles;
+}
+function zhuhaiLighthouse(){
+  // The coastal lighthouse is distinct from the neighboring Love Post Office POI.
+  const m=mesh(),blue=[51,101,132];m.base(66,50,C.water);m.box(0,2,6,17,1.4,39,C.stone);
+  m.frustum(0,3,0,10,3,9,C.white,20);m.frustum(0,6,0,9,40,6.7,C.white,20);
+  for(const y of [18,32]){const r=9-(y-6)/40*2.3;m.frustum(0,y,0,r+.15,3,r-.02,blue,20);}
+  m.box(0,6,8.8,3.7,8,.5,C.dark);m.frustum(0,46,0,10,2,10,C.white,20);m.frustum(0,48,0,6.5,9,6.5,C.glass,16);
+  for(let i=0;i<8;i++){const a=i/8*Math.PI*2;m.rod([Math.cos(a)*6.6,48,Math.sin(a)*6.6],[Math.cos(a)*6.6,57,Math.sin(a)*6.6],.35,C.white,5);m.rod([Math.cos(a)*9.5,48,Math.sin(a)*9.5],[Math.cos(a)*9.5,51,Math.sin(a)*9.5],.35,C.white,5);}
+  m.frustum(0,57,0,10,6,.8,blue,20);m.rod([0,63,0],[0,68,0],.55,C.white,6);
+  for(const x of [-24,22])m.frustum(x,2,-9,5,4,3,C.stone,7);return m.triangles;
+}
+
 const factories=Object.freeze({
+  'foshan-ancestral-temple':foshanTemple,'foshan-nanfeng-kiln':foshanKiln,'foshan-qinghui-garden':foshanQinghui,
+  'zhuhai-grand-theatre':zhuhaiTheater,'zhuhai-new-yuanming-palace':zhuhaiYuanming,'zhuhai-love-post-lighthouse':zhuhaiLighthouse,
+  'zhongshan-sun-residence':sunResidence,'zhongshan-memorial-hall':zhongshanMemorial,
+  'zhongshan-zhan-garden':zhanGarden,'zhongshan-skywheel':zhongshanSkywheel,
   'hz-leifeng-tower':leifeng,'hz-baochu-pagoda':baochu,'hz-three-pools':threePools,'hz-lingyin-temple':lingyin,
   'sz-tiger-hill':tigerHill,'sz-museum':suzhouMuseum,'sz-north-temple-pagoda':northTemple,'sz-gate-east':gateEast,
   'bj-temple-heaven':templeHeaven,'bj-palace-museum':palaceMuseum,'bj-birds-nest':birdsNest,

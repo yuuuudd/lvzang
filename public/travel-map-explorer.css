@@ -30,10 +30,10 @@
 .landmark-leaders circle{fill:#507c22;stroke:#fff;stroke-width:1.5}
 .route-map.illustration .landmark-leaders{display:none}
 .amap-viewport .landmark-marker.selected{outline:none}
-.amap-viewport .landmark-marker{position:relative;display:flex;flex-direction:column;align-items:center;gap:0;width:96px;min-height:130px;padding:0;background:transparent;border:0;border-radius:0;box-shadow:none;transform:none;white-space:normal;color:var(--ink);cursor:pointer}
-.landmark-model{display:block;width:86px;height:82px;pointer-events:none;transition:transform .16s ease-out}
-.landmark-canvas{display:block;width:86px;height:82px;max-width:none;pointer-events:none}
-.landmark-label{display:block;max-width:96px;padding:4px 5px;background:#fff;border-radius:6px;box-shadow:0 2px 7px #23313924;text-align:center;pointer-events:none}
+.amap-viewport .landmark-marker{position:relative;display:flex;flex-direction:column;align-items:center;gap:0;width:calc(96px * var(--landmark-scale,1));min-height:calc(130px * var(--landmark-scale,1));padding:0;background:transparent;border:0;border-radius:0;box-shadow:none;transform:none;white-space:normal;color:var(--ink);cursor:pointer}
+.landmark-model{display:block;width:calc(86px * var(--landmark-scale,1));height:calc(82px * var(--landmark-scale,1));pointer-events:none;transition:transform .16s ease-out}
+.landmark-canvas{display:block;width:calc(86px * var(--landmark-scale,1));height:calc(82px * var(--landmark-scale,1));max-width:none;pointer-events:none}
+.landmark-label{display:block;max-width:calc(96px * var(--landmark-scale,1));padding:4px 5px;background:#fff;border-radius:6px;box-shadow:0 2px 7px #23313924;text-align:center;pointer-events:none}
 .landmark-name{display:block;font-size:11px;line-height:1.4;font-weight:700;overflow-wrap:anywhere}
 .landmark-day{display:block;margin-top:2px;font-size:10px;line-height:1.4;font-weight:500;color:var(--muted);font-variant-numeric:tabular-nums}
 .is-today .landmark-day{color:var(--green)}
@@ -47,9 +47,27 @@
 .landmark-marker.is-destination .landmark-endpoint{background:var(--ink)}
 .landmark-marker.is-origin .landmark-label{background:var(--mint);outline:2px solid var(--green)}
 .landmark-marker.is-destination .landmark-label{outline:2px solid var(--ink)}
-.landmark-marker.has-no-model{justify-content:flex-end;min-height:60px}
-.landmark-marker.has-no-model .landmark-model{display:none}
-.landmark-marker.has-no-model .landmark-endpoint{top:-15px}
+.amap-viewport .landmark-marker.is-pin{width:calc(80px * var(--landmark-scale,1));min-height:calc(84px * var(--landmark-scale,1));justify-content:flex-end;gap:3px}
+.landmark-marker.is-pin .landmark-label{max-width:calc(80px * var(--landmark-scale,1))}
+.landmark-pin{display:block;flex:none;width:calc(28px * var(--landmark-scale,1));height:calc(36px * var(--landmark-scale,1));color:var(--green);filter:drop-shadow(0 2px 2px #23313930);pointer-events:none}
+.landmark-marker.is-pin::after{display:none}
+.landmark-marker.is-pin .landmark-endpoint{top:-21px}
+.landmark-marker.is-pin.is-other-day .landmark-pin{color:#819277}
+.landmark-marker.is-pin.is-destination .landmark-pin{color:var(--ink)}
+.amap-viewport .landmark-marker.is-pin.is-compact{width:80px;min-height:64px}
+.landmark-marker.is-pin.is-compact .landmark-label{max-width:80px}
+/* Marker detail follows the camera; regional POIs stay at their real anchors. */
+.route-map[data-landmark-zoom="overview"] .amap-viewport .landmark-marker{width:24px;height:24px;min-height:24px;max-width:24px;padding:0;gap:0;justify-content:flex-end}
+.route-map[data-landmark-zoom="overview"] .landmark-model,.route-map[data-landmark-zoom="overview"] .landmark-pin,.route-map[data-landmark-zoom="overview"] .landmark-label,.route-map[data-landmark-zoom="overview"] .landmark-endpoint{display:none}
+.route-map[data-landmark-zoom="overview"] .landmark-marker::after{display:block;flex:none;width:12px;height:12px;box-sizing:border-box;border:2px solid #fff;border-radius:50%;background:var(--green);box-shadow:0 1px 4px #23313960}
+.route-map[data-landmark-zoom="overview"] .landmark-marker.is-other-day::after{background:#819277}
+.route-map[data-landmark-zoom="overview"] .landmark-marker.is-destination::after{background:var(--ink)}
+.route-map[data-landmark-zoom="overview"] .landmark-marker.is-origin::after,.route-map[data-landmark-zoom="overview"] .landmark-marker.is-focused::after{box-shadow:0 0 0 3px #507c2233,0 1px 4px #23313960}
+.route-map[data-landmark-zoom="overview"] .landmark-marker:hover .landmark-label,.route-map[data-landmark-zoom="overview"] .landmark-marker:focus-visible .landmark-label,.route-map[data-landmark-zoom="overview"] .landmark-marker.is-focused .landmark-label{display:block;position:absolute;bottom:20px;left:50%;transform:translateX(-50%);width:max-content;max-width:120px;z-index:1}
+.route-map[data-landmark-zoom="overview"] .landmark-day{display:none}
+.route-map[data-landmark-zoom="nearby"] .landmark-label{padding:3px 4px}
+.route-map[data-landmark-zoom="nearby"] .landmark-name{font-size:10px}
+.route-map[data-landmark-zoom="nearby"] .landmark-day{display:none}
 #map-explorer-controls{position:absolute;top:12px;left:12px;z-index:5;display:flex;flex-wrap:wrap;gap:0;max-width:calc(100% - 24px);padding:2px;background:#fff;border:1px solid var(--line);border-radius:8px}
 #map-explorer-controls button{min-width:44px;min-height:44px;padding:8px 10px;border-radius:5px;font-size:11px;line-height:1.4;color:var(--ink);white-space:nowrap}
 #map-explorer-controls button img{width:16px;height:16px;display:block;margin:auto;pointer-events:none}
