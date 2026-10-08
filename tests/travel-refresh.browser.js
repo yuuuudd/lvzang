@@ -49,7 +49,7 @@ try{
   assert.deepEqual(saved.previousPlanningContext.profile,profile,'The previous preferences remain recoverable without participating in the new interview');
   assert.match(await page.locator('#route-current-destination').textContent(),/上一份方案.*广州/);
   assert.equal(await page.locator('#travel-brief').inputValue(),'尚未发送的新想法');assert.equal(await page.locator('#route-refresh').textContent(),'继续问答');
-  assert.match(await page.locator('#map-title').textContent(),/广州/);
+  assert.match(await page.locator('#map-title').textContent(),/西藏/,'The map follows the selected destination while the previous Guangzhou guide remains');
   const beforeFailure=JSON.stringify(saved);
   await page.route('**/api/travel-chat/stream',route=>route.fulfill({contentType:'application/x-ndjson',body:JSON.stringify({type:'error',error:'测试问答启动失败'})+'\n'}));
   await page.locator('#route-destination').fill('杭州');await page.locator('#route-refresh').click();await page.waitForFunction(()=>!document.querySelector('#route-refresh').disabled);

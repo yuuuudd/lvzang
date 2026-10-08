@@ -27,7 +27,8 @@ try{
   const action=async selector=>{const response=page.waitForResponse(r=>r.url().endsWith('/api/travel-chat/stream'));await page.locator(selector).click();await response;await idle();};
   const assertOldPlan=async()=>{
     const current=await state();assert.deepEqual(current.plan,oldPlan,'The previous accepted route stays intact throughout the new interview');assert.deepEqual(current.collection,oldState.collection,'Starting a destination interview never removes souvenirs');
-    for(const id of ['map-title','route-current-destination'])assert.match(await page.locator('#'+id).textContent(),/广州/,'The map and current-route label still describe the accepted previous trip');
+    assert.match(await page.locator('#route-current-destination').textContent(),/广州/,'The previous-guide label still describes the accepted previous trip');
+    assert.match(await page.locator('#map-title').textContent(),/西藏/,'The map follows this destination independently of the previous accepted guide');
   };
   const assertFreshPayload=payload=>{
     assert.equal(payload.currentPlan,undefined,'The old Guangzhou route is display-only, never input to the new trip');

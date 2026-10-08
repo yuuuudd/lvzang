@@ -26,7 +26,7 @@ export function createJourneyInspector({requestRoute, drawRoute, clearRoute, hig
   const membershipStatus = document.getElementById('map-membership-status');
   let selection = emptyJourneySelection(), stops = new Map(), places = new Map();
   let mode = 'walk', active = false, token = 0, pairKey = null, isExample = false;
-  let currentLocation = null, membershipBusy = false, fitComparison = true;
+  let currentLocation = null, membershipBusy = false, membershipEnabled = true, fitComparison = true;
   const transport = () => mode === 'drive' ? '驾车' : '步行';
 
   function paint() {
@@ -45,8 +45,8 @@ export function createJourneyInspector({requestRoute, drawRoute, clearRoute, hig
     swap.disabled = !active || !selection.originId || !selection.destinationId;
     clear.disabled = !active || !selection.originId;
     if (membership) {
-      membership.hidden = !focused || focused.kind === 'location' || !onMembershipChange;
-      membership.disabled = !canFocus || membershipBusy;
+      membership.hidden = !focused || focused.kind === 'location' || !onMembershipChange || !membershipEnabled;
+      membership.disabled = !canFocus || membershipBusy || !membershipEnabled;
       membership.textContent = focused?.kind === 'exploration' || isExample ? '加入行程' : '移出行程';
     }
     highlight(selection);
@@ -113,7 +113,7 @@ export function createJourneyInspector({requestRoute, drawRoute, clearRoute, hig
   retry.onclick = () => calculate(true);
   if (membership) membership.onclick = async () => {
     const focused = stops.get(selection.focusId);
-    if (!focused || membershipBusy || !onMembershipChange) return;
+    if (!focused || membershipBusy || !onMembershipChange || !membershipEnabled) return;
     membershipBusy = true; membershipStatus.textContent = '正在更新行程…'; paint();
     try {
       const action = focused.kind === 'exploration' || isExample ? 'add' : 'remove';
@@ -124,7 +124,7 @@ export function createJourneyInspector({requestRoute, drawRoute, clearRoute, hig
   };
 
   return {
-    reset({landmarkStops, mode: nextMode, preserve = false, preserveCamera = false, isExample: example = false}) {
+    reset({landmarkStops, mode: nextMode, preserve = false, preserveCamera = false, isExample: example = false, membershipEnabled: allowMembership = true}) {
       ++token;
       pairKey = null;
       active = false;
@@ -134,6 +134,11 @@ export function createJourneyInspector({requestRoute, drawRoute, clearRoute, hig
       if (currentLocation) {stops.set(currentLocation.id, {...currentLocation,kind:'location'});places.set(currentLocation.id,currentLocation);}
       mode = nextMode;
       isExample = example;
+      membershipEnabled = Boolean(allowMembership);
+      scopeNote.textContent = membershipEnabled
+        ? '点击建筑只查看和比较路程；加入或移出行程，请使用对应按钮。'
+        : '点击建筑可查看和比较路程；先完成这个目的地的攻略，再增删行程地点。';
+      if (!membershipEnabled && membershipStatus) membershipStatus.textContent = '';
       const previousOrigin = selection.originId;
       selection = preserve ? reconcileJourneySelection(selection, [...stops.keys()]) : emptyJourneySelection();
       // Hiding the selected destination does not undo an explicit device origin.

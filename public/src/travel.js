@@ -17,14 +17,14 @@ const $=id=>document.getElementById(id),esc=v=>String(v??'').replace(/[&<>"']/g,
 let state=initialState(),current=null,previews=[],dialogPreview=null,shared=null,busy=false,textRevision=false,storageHealthy=true;
 const currentIdentityKey=()=>accountInfo.enabled?(accountInfo.user?.id||'guest'):'local';
 let loadedIdentityKey=currentIdentityKey();
-let controller=null,routePreviews=[],resetPrevious=false,destinationTouched=false,history=[],activeDay=0;
+let controller=null,routePreviews=[],resetPrevious=false,destinationTouched=false,history=[],activeDay=0,mapDestination='';
 const travelUiKey='lvzang.travel-ui.v1';let toolsPreference=null;
 const routeRefresh=installTravelRefresh(city=>{
   if(busy)return;
   focusAdvisor();
   if(resetPrevious&&['active','ready','paused'].includes(state.profile.interview?.status)&&mapDestinationKey(city)===mapDestinationKey(state.profile.fields.destination.value))return requestInterview('resume');
   runPlan(true,{advisorAction:'interview',interviewAction:'restart',destination:city,description:`我想去${city}，请重新开始这次旅行的16个问题。`});
-});
+},city=>{mapDestination=city;renderDestinationMap();renderRouteState();});
 try{const savedUi=JSON.parse(localStorage.getItem(travelUiKey)||'null');if(typeof savedUi?.toolsCollapsed==='boolean')toolsPreference=savedUi.toolsCollapsed;}catch{}
 function setToolsCollapsed(collapsed,save=false){
   $('planner-tools-content').hidden=collapsed;$('planner-tools-toggle').setAttribute('aria-expanded',String(!collapsed));
@@ -280,9 +280,18 @@ $('cancel-plan').onclick=()=>controller?.abort();
 $('revise').onclick=()=>$('travel-brief').focus();
 $('new-trip').onclick=()=>{if(busy)return;resetPrevious=true;state.planningReset=true;history=[];state.profile=emptyTravelProfile();destinationTouched=false;$('destination').value='';$('hours').value='';$('travel-brief').value='';$('chat-messages').innerHTML='';persist();persistChat();renderRequirements(state.profile);$('travel-brief').focus();chatMessage('assistant','开始一个新方案。告诉我想去哪、可以玩多久；收藏和上次方案会继续保留。');};
 function clearRoutePreviews(){routePreviews.forEach(p=>p.destroy());routePreviews=[];}
+function mapHasCurrentRoute(plan=displayedPlan()){
+  return !resetPrevious&&mapDestinationKey(mapDestination||plan.city)===mapDestinationKey(plan.city);
+}
+function renderDestinationMap(){
+  const fullPlan=displayedPlan(),sameRoute=mapHasCurrentRoute(fullPlan),day=fullPlan.days?.[activeDay];
+  const plan=sameRoute?(day?{...fullPlan,...day}:fullPlan):{city:mapDestination||state.profile.fields.destination.value||fullPlan.city,stops:[],dayIndex:1};
+  renderMap(plan,state.collection,sameRoute?fullPlan.stops:[],{excludedPlaces:sameRoute?state.profile.fields.excludedPlaces.value||[]:[],excludedIds:sameRoute?fullPlan.input.excludedIds||[]:[],isExample:!state.plan,activeDayIndex:activeDay+1,onMembershipChange:sameRoute?requestItineraryEdit:null});
+  renderRouteSouvenirs(plan);
+}
 function renderRouteState(plan=displayedPlan()){
   const quality=travelPlanStatus(plan,{isExample:!state.plan,awaitingInfo:Boolean(state.profile.followUps.length),dayIndex:activeDay+1});
-  $('route-state').textContent=busy?'待更新':resetPrevious&&state.plan?'上一份方案':quality.label;$('route-state').title=quality.summary;return quality;
+  $('route-state').textContent=busy?'待更新':!mapHasCurrentRoute(plan)&&state.plan?'上一份方案':quality.label;$('route-state').title=quality.summary;return quality;
 }
 function renderRoute(){
   const fullPlan=displayedPlan();if(!fullPlan)return;
@@ -297,13 +306,16 @@ function renderRoute(){
   $('route-stops').innerHTML=plan.stops.map((p,i)=>{const collected=state.collection.some(c=>c.id===p.id);return `<article class="stop-card" data-stop-card="${p.id}" tabindex="-1"><span class="stop-number">${i+1}</span><h3>${esc(p.name)}</h3><p class="stop-time">${clock(plan.input,p.estimatedStart)} — ${clock(plan.input,p.estimatedStart+p.minutes)}</p><p class="stop-story">${esc(p.story)}</p><details><summary>探索任务与纪念品</summary><p>${esc(p.task)}</p><p>${byId(p.id)?'可收藏：'+esc(p.souvenir):'可用旅行照片创作专属纪念品'}<br>${esc(p.availability)}</p></details><div class="stop-actions">${byId(p.id)?`<button class="${collected?'secondary':'primary'}" data-unlock="${p.id}">${collected?'查看 3D 纪念品':'模拟签到 · 解锁'}</button>`:'<a class="secondary" href="/collection.html#world/create">定制纪念品</a>'}<a data-navigation-stop="${esc(p.id)}" data-location-status="unresolved" href="https://uri.amap.com/search?keyword=${encodeURIComponent(p.city+p.name)}" target="_blank" rel="noopener">在高德搜索</a></div>${state.plan?`<button type="button" class="text-button" data-remove-stop="${esc(p.id)}" data-request-identity aria-label="将${esc(p.name)}移出行程" ${busy?'disabled':''}>移出行程</button>`:''}</article>`;}).join('')||`<p class="day-empty">${quality.currentFree?`按你的选择，第${activeDay+1}天留作自由安排；仍可从地图明确加入地点。`:`第${activeDay+1}天还没有排入具体地点，这一天的行程尚未完成。`}</p>`;
   $('route-stops').querySelectorAll('[data-unlock]').forEach(button=>button.onclick=()=>{const id=button.dataset.unlock,was=state.collection.some(c=>c.id===id);if(!state.plan)state.plan=samplePlan;unlock(state,id,fullPlan.title);const saved=persist();renderRoute();showSouvenir(id);if(!saved)notice('纪念品暂留在当前页面，尚未保存；请导出展览备份。');else if(!was)notice('已通过模拟签到解锁，正式活动需配置现场核验。');});
   $('route-stops').querySelectorAll('[data-remove-stop]').forEach(button=>button.onclick=()=>requestItineraryEdit({action:'remove',stop:fullPlan.stops.find(stop=>stop.id===button.dataset.removeStop)}));
-  renderMap(plan,state.collection,fullPlan.stops,{excludedPlaces:state.profile.fields.excludedPlaces.value||[],excludedIds:fullPlan.input.excludedIds||[],isExample:!state.plan,activeDayIndex:activeDay+1,onMembershipChange:requestItineraryEdit});clearRoutePreviews();
-  $('route-souvenirs').innerHTML=plan.stops.filter(p=>byId(p.id)).slice(0,3).map(p=>`<article class="souvenir-preview"><canvas data-route-model="${p.id}" aria-hidden="true"></canvas><div><strong>${esc(p.souvenir)}</strong><small>${state.collection.some(c=>c.id===p.id)?'已解锁 · 查看':'未解锁'}</small></div><button aria-label="查看${esc(p.souvenir)}收藏状态" data-preview-stop="${p.id}"></button></article>`).join('')||'<p class="fine">这里还没有预制纪念品。<a href="/collection.html#world/create">用照片定制自己的旅行收藏</a></p>';
-  $('route-souvenirs').querySelectorAll('canvas').forEach(canvas=>{try{const preview=createPreview(canvas),m=makeSouvenir(canvas.dataset.routeModel);preview.setMesh(m.mesh,{originalColors:m.colors,widthMm:m.widthMm,heightMm:m.heightMm,centerY:20,centerZ:0});preview.setColor(true);preview.view(false);routePreviews.push(preview);}catch{canvas.hidden=true;}});
-  $('route-souvenirs').querySelectorAll('[data-preview-stop]').forEach(button=>button.onclick=()=>{if(state.collection.some(c=>c.id===button.dataset.previewStop))showSouvenir(button.dataset.previewStop);else{document.querySelector(`[data-stop-card="${button.dataset.previewStop}"]`)?.focus({preventScroll:true});notice('在对应行程站点模拟签到后，可解锁纪念品并加入展柜。');}});
+  renderDestinationMap();
   const analysis=plan.analysis;
   $('analysis-content').innerHTML=`<p class="fine">${esc(analysis.summary)}</p>`+analysis.findings.map(f=>`<article class="source-entry"><strong>${esc(f.title)}</strong><p>${esc(f.text)}</p><small>原帖片段 · 未独立核实</small></article>`).join('')+analysis.places.map(p=>`<article class="source-entry"><strong>${esc(p.name)}</strong><p>${p.evidence.map(e=>esc(e.title)+(e.url?` · <a href="${esc(e.url)}" target="_blank" rel="noopener">查看出处</a>`:'')).join('<br>')}</p></article>`).join('')+`<p class="fine">${plan.stops.some(p=>p.source)?'地方参考：':(fullPlan.guide?.sources?.length||fullPlan.research?.sources?.length)?'本轮公开资料见下方来源':'暂无本轮可引用的公开资料'}${plan.stops.filter(p=>p.source).map(p=>`<a href="${esc(p.source)}" target="_blank" rel="noopener">${esc(p.name)}</a>`).join(' · ')}。参考入口不代表已核实当日营业、预约与票价。</p>`;
   renderTravelGuide(fullPlan,activeDay+1,question=>sendAdvisorPrompt('question',question),{isExample:!state.plan||resetPrevious,onEnrich:()=>sendAdvisorPrompt('guide')});
+}
+function renderRouteSouvenirs(plan){
+  clearRoutePreviews();
+  $('route-souvenirs').innerHTML=plan.stops.filter(p=>byId(p.id)).slice(0,3).map(p=>`<article class="souvenir-preview"><canvas data-route-model="${p.id}" aria-hidden="true"></canvas><div><strong>${esc(p.souvenir)}</strong><small>${state.collection.some(c=>c.id===p.id)?'已解锁 · 查看':'未解锁'}</small></div><button aria-label="查看${esc(p.souvenir)}收藏状态" data-preview-stop="${p.id}"></button></article>`).join('')||'<p class="fine">这里还没有预制纪念品。<a href="/collection.html#world/create">用照片定制自己的旅行收藏</a></p>';
+  $('route-souvenirs').querySelectorAll('canvas').forEach(canvas=>{try{const preview=createPreview(canvas),m=makeSouvenir(canvas.dataset.routeModel);preview.setMesh(m.mesh,{originalColors:m.colors,widthMm:m.widthMm,heightMm:m.heightMm,centerY:20,centerZ:0});preview.setColor(true);preview.view(false);routePreviews.push(preview);}catch{canvas.hidden=true;}});
+  $('route-souvenirs').querySelectorAll('[data-preview-stop]').forEach(button=>button.onclick=()=>{if(state.collection.some(c=>c.id===button.dataset.previewStop))showSouvenir(button.dataset.previewStop);else{document.querySelector(`[data-stop-card="${button.dataset.previewStop}"]`)?.focus({preventScroll:true});notice('在对应行程站点模拟签到后，可解锁纪念品并加入展柜。');}});
 }
 
 function clearPreviews(){previews.forEach(p=>p.destroy());previews=[];}

@@ -421,7 +421,7 @@ export function createTravelMap() {
     excludedPlaces = [...(options.excludedPlaces || [])]; excludedIds = [...(options.excludedIds || [])];
     collectLandmarks(plan,options);
     const token = ++generation;
-    clear(); journey.reset({landmarkStops, mode, preserve: preserveSelection, preserveCamera: cameraMoved, isExample}); resetNavigation(); controls(false);
+    clear(); journey.reset({landmarkStops, mode, preserve: preserveSelection, preserveCamera: cameraMoved, isExample, membershipEnabled: Boolean(membershipChange)}); resetNavigation(); controls(false);
     locationDetails.open = false;
     surface.classList.remove('illustration', 'schematic'); modeSelect.disabled = false;
     setStatus('正在加载高德地图…', 'loading'); showMessage('正在连接高德地图…');
@@ -437,7 +437,7 @@ export function createTravelMap() {
       if(cityChanged&&!cameraMoved)map.setZoomAndCenter(4,[104,35]);
       const area=await destinationArea(plan.city);if(!isCurrent(token))return;
       currentDestination=area;collectLandmarks(plan,options);
-      journey.reset({landmarkStops,mode,preserve:preserveSelection,preserveCamera:cameraMoved,isExample});
+      journey.reset({landmarkStops,mode,preserve:preserveSelection,preserveCamera:cameraMoved,isExample,membershipEnabled:Boolean(membershipChange)});
       if(needsDestinationView&&!cameraMoved&&area)map.setZoomAndCenter(area.zoom,area.position);
       map.resize?.(); available = true; controls(true);showCurrentLocation();
       if (!landmarkStops.length) {
