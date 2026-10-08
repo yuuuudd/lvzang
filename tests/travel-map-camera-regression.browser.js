@@ -26,7 +26,7 @@ try {
   await page.route('https://webapi.amap.com/maps?**', route => route.fulfill({ contentType: 'application/javascript', body: sdkSource.replace('const sdkCallback=', geo + '\nconst sdkCallback=').replace('window.AMap={Map:', 'window.AMap={Geolocation,Map:') }));
   await page.goto(base + '/travel.html');
   await page.waitForFunction(() => document.querySelector('.route-map').dataset.mapPhase === 'ready');
-  await page.getByRole('button', { name: '从我的位置出发', exact: true }).click();
+  await page.getByRole('button', { name: '当前位置', exact: true }).click();
   await page.locator('.map-marker[data-stop="gz-museum"]').click();
   await page.waitForFunction(() => document.getElementById('map-journey-result').dataset.state === 'ready');
   const before = await page.evaluate(() => {

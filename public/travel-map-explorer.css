@@ -4,7 +4,14 @@
 .map-discovery label{display:grid;gap:4px;font-size:11px;color:var(--muted);flex:1;min-width:100px}
 .map-discovery select,.map-discovery input{min-height:38px;border:1px solid var(--line);border-radius:7px;background:var(--surface);padding:7px 9px;color:var(--ink);width:100%;min-width:0}
 .map-discovery button{min-height:38px;font-size:11px;white-space:normal}
-#map-location-status,#map-search-status{margin:7px 0;line-height:1.6}
+#map-search-status{margin:7px 0;line-height:1.6}
+#map-location-status{position:absolute;right:12px;bottom:86px;z-index:5;width:max-content;max-width:calc(100% - 24px);margin:0;padding:8px 10px;border:1px solid var(--line);border-radius:7px;background:var(--surface);color:var(--muted);font-size:12px;line-height:1.6;overflow-wrap:anywhere;cursor:default}
+#map-location-status:empty{display:none}
+#map-use-location{position:absolute;right:12px;bottom:32px;z-index:5;display:grid;place-items:center;width:44px;height:44px;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);box-shadow:0 2px 6px #23313920;cursor:pointer}
+#map-use-location svg{display:block;pointer-events:none}
+#map-use-location:hover{background:var(--mint)}
+#map-use-location:disabled{opacity:.55;cursor:not-allowed}
+#map-use-location:focus-visible{outline:2px solid var(--green);outline-offset:2px}
 #map-location-status[data-state="error"]{color:#a33b25}
 #map-search-form{display:flex;gap:6px}#map-search-form input{flex:1}#map-search-form button{flex-shrink:0}
 #map-search-results{display:grid;max-height:190px;overflow:auto;gap:4px}.map-search-choice{text-align:left;min-height:40px;padding:8px;border:1px solid var(--line);border-radius:6px;font-size:12px}
@@ -17,7 +24,7 @@
 .route-map .amap-viewport,.route-map .amap-layers{cursor:grab}
 .route-map:active{cursor:grabbing}
 .route-map .amap-viewport:active,.route-map .amap-layers:active{cursor:grabbing}
-.route-map.illustration #map-explorer-controls,.route-map.illustration #map-landmark-caption{display:none}
+.route-map.illustration #map-explorer-controls,.route-map.illustration #map-landmark-caption,.route-map.illustration #map-use-location,.route-map.illustration #map-location-status{display:none}
 .landmark-leaders{position:absolute;inset:0;z-index:1;width:100%;height:100%;pointer-events:none;overflow:hidden}
 .landmark-leaders line{stroke:#507c22;stroke-width:1.5;stroke-dasharray:3 3;opacity:.85}
 .landmark-leaders circle{fill:#507c22;stroke:#fff;stroke-width:1.5}

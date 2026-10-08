@@ -22,17 +22,35 @@ try{
   await page.route('https://webapi.amap.com/maps?**',route=>route.fulfill({contentType:'application/javascript',body:sdkSource.replace('const sdkCallback=',geolocation+'\n const sdkCallback=').replace('window.AMap={Map:','window.AMap={Geolocation,Map:')}));
   await page.goto(root+'/travel.html');
   await page.waitForFunction(()=>document.querySelector('.route-map').dataset.mapPhase==='ready');
-  assert.equal(await page.getByRole('button',{name:'从我的位置出发',exact:true}).count(),1,'A visible current-position origin action must exist');
+  assert.equal(await page.getByRole('button',{name:'当前位置',exact:true}).count(),1,'A visible current-position origin action must exist');
+  assert.equal(await page.locator('.route-map #map-use-location').count(),1,'The single location action belongs inside the map');
+  assert.equal(await page.locator('#map-use-location').getAttribute('title'),'当前位置');
+  assert.equal(await page.locator('#map-use-location').textContent(),'','The location action is a compact icon, not a text banner');
+  assert.equal(await page.locator('#map-location-status').isVisible(),false,'An idle map has no default location explanation');
   assert.equal(await page.evaluate(()=>window.mock.locationCalls),0,'Opening the map never requests location');
-  await page.getByRole('button',{name:'从我的位置出发',exact:true}).click();
+  await page.getByRole('button',{name:'当前位置',exact:true}).click();
   await page.waitForFunction(()=>document.getElementById('map-origin').textContent==='我的位置');
   await page.locator('.map-marker[data-stop="gz-museum"]').click();
   await page.waitForFunction(()=>document.getElementById('map-journey-result').dataset.state==='ready');
   assert.deepEqual(await page.evaluate(()=>window.mock.routes.at(-1).from),[113.321,23.131]);
   assert.equal(await page.evaluate(()=>localStorage.getItem('lvzang.v1')),saved,'Location and route comparison do not modify the accepted trip');
   await page.evaluate(()=>window.mock.locationError=true);
-  await page.getByRole('button',{name:'从我的位置出发',exact:true}).click();
+  await page.getByRole('button',{name:'当前位置',exact:true}).click();
   await page.waitForFunction(()=>document.getElementById('map-location-status').dataset.state==='error');
+  assert.equal(await page.locator('#map-location-status').isVisible(),true,'Denied location remains visibly explained next to the compact action');
+  assert.match(await page.locator('#map-location-status').textContent(),/拒绝|未获允许|权限|未允许/);
+  for(const width of [390,580,1440]){
+    await page.setViewportSize({width,height:1000});
+    const geometry=await page.evaluate(()=>{
+      const map=document.querySelector('.route-map').getBoundingClientRect();
+      const button=document.getElementById('map-use-location').getBoundingClientRect();
+      const status=document.getElementById('map-location-status').getBoundingClientRect();
+      const inside=rect=>rect.left>=map.left-1&&rect.right<=map.right+1&&rect.top>=map.top-1&&rect.bottom<=map.bottom+1;
+      return {noOverflow:document.documentElement.scrollWidth<=innerWidth,buttonInside:inside(button),statusInside:inside(status),statusAboveButton:status.bottom<=button.top};
+    });
+    assert.deepEqual(geometry,{noOverflow:true,buttonInside:true,statusInside:true,statusAboveButton:true},`Location control and failure state fit at ${width}px`);
+  }
+  await page.setViewportSize({width:1500,height:1100});
   assert.equal(await page.locator('#map-origin').textContent(),'我的位置','Denied retry preserves prior comparison');
   await page.getByLabel('地标密度',{exact:true}).selectOption('detailed');
   await page.waitForFunction(()=>!!document.querySelector('.map-marker[data-stop="gz-parc-central"]')&&!!document.querySelector('.map-marker[data-stop="gz-grandview"]'));

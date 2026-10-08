@@ -8,6 +8,23 @@ const anchors={'gz-museum':[80,40],'gz-square':[51,30],'gz-tower':[48,87],'gz-op
 let illustration=false,lastMap=null,selected=null,mapController=null;
 export function budgetText(input,profile=null){const budget=profile?.fields?.budget?.value;return budget?.amount!=null?`¥${budget.amount}`:input?.budget?input.budget.replace(/^(\d+(?:\.\d+)?)元/,'¥$1'):'未设置';}
 export function timeText(input){if(!input)return '待安排';return `${input.startTime||'09:00'} — ${clock(input,(input.hours||4)*60)}`;}
+export function travelPlanStatus(plan,{isExample=false,awaitingInfo=false,dayIndex=1}={}){
+  const days=Array.isArray(plan?.days)&&plan.days.length?plan.days:[{dayIndex:1,stops:plan?.stops||[]}];
+  const requested=Number.isInteger(plan?.input?.dayCount)?plan.input.dayCount:days.length;
+  const coveredDays=days.filter(day=>day.stops?.length).map(day=>day.dayIndex);
+  const freeDays=(plan?.planningCoverage?.freeDays||[]).filter(day=>Number.isInteger(day)&&day>=1&&day<=requested&&!coveredDays.includes(day));
+  const missingDays=Array.from({length:requested},(_,index)=>index+1).filter(day=>!coveredDays.includes(day)&&!freeDays.includes(day));
+  const currentFree=freeDays.includes(dayIndex),currentMissing=missingDays.includes(dayIndex);
+  const diningPending=plan?.guide?.diningStatus==='partial';
+  const diningMissingDays=(plan?.guide?.diningMissingDays||[]).filter(day=>Number.isInteger(day)&&day>=1&&day<=requested);
+  const diningRetainedDays=(plan?.guide?.diningRetainedDays||[]).filter(day=>Number.isInteger(day)&&day>=1&&day<=requested);
+  const guidePending=coveredDays.length>0&&(!plan?.guide||['unavailable','partial'].includes(plan.guide.status)||diningPending);
+  const missingText=missingDays.map(day=>`第${day}天`).join('、');
+  const diningRetainedOnly=diningRetainedDays.length>0&&!diningMissingDays.length;
+  const label=isExample?(awaitingInfo?'待补充条件':'示例'):missingDays.length?'行程待补充':currentFree?'自由安排':awaitingInfo?'待补充条件':diningPending?diningRetainedOnly?'餐饮待更新':'餐饮待补充':guidePending?'攻略待补充':'已生成';
+  const summary=missingDays.length?`${missingText}尚未安排具体地点`:diningPending?diningRetainedOnly?'本次餐饮更新未完成，已保留上一版店家':`${diningMissingDays.map(day=>`第${day}天`).join('、')||'部分日期'}的具体餐厅尚待补充`:guidePending?'路线已生成，详细攻略待补充':currentFree?'按你的选择保留自由安排':'行程已生成';
+  return {label,summary,coveredDays,freeDays,missingDays,currentFree,currentMissing,guidePending,diningPending,diningMissingDays,diningRetainedDays};
+}
 export function clock(input,minutes=0){const [h,m]=(input.startTime||'09:00').split(':').map(Number),value=h*60+m+minutes;return `${value>=1440?'次日 ':''}${String(Math.floor(value/60)%24).padStart(2,'0')}:${String(value%60).padStart(2,'0')}`;}
 export function travelTimeDisplay(input,profile=null,day=null,awaitingInfo=false){
   const fields=profile?.fields;

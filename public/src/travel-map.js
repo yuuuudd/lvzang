@@ -142,7 +142,7 @@ export function createTravelMap() {
     if (selectionLine) map?.remove?.(selectionLine);
     selectionLine = null;
   }
-  function cancelLocation(note = '可以继续手动选择起终点，或重新定位。') {
+  function cancelLocation(note = '') {
     ++locationToken;
     locationPending = false;
     locationButton.disabled = !available;
@@ -384,7 +384,7 @@ export function createTravelMap() {
     if (!plan) return;
     const cityChanged = currentPlan && currentPlan.city !== plan.city;
     const preserveSelection = Boolean(options.preserveSelection && !cityChanged);
-    if (!preserveSelection) cancelLocation('定位由你主动开启，仅用于本次路程比较。');
+    if (!preserveSelection) cancelLocation();
     if (cityChanged) {searchedPlaces.clear();currentLocation=null;++searchToken;searchResults.replaceChildren();searchStatus.textContent='精选目录并非全城所有地点；可以用高德搜索补充。';}
     currentPlan = plan;
     membershipChange = options.onMembershipChange || null;

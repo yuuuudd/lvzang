@@ -25,7 +25,7 @@ const successful={status:'ok',sources:[source()],queries:[],errors:[]};
 test('advisor uses real function tool messages, keeps source statuses and preserves source ids when reading a search result',async()=>{
   const stub=provider([toolMessage([toolCall('search_travel_web',{query:'广州 陈家祠 粤菜',city:'广州'})]),toolMessage([toolCall('fetch_travel_page',{url:source().url},'read')]),{reply:'可以先参观，再考虑附近粤菜。',sourceIds:['web-fixture']}]);
   const executed=[];
-  const result=await askTravelAdvisor(request,{...stub,toolImplementations:{searchTravelWeb:async(args,options)=>{executed.push(args);assert.ok(options.signal);return {...successful,sources:[source('search-snippet')]};},fetchTravelPage:async args=>{executed.push(args);return successful;}}});
+  const result=await askTravelAdvisor(request,{...stub,toolImplementations:{searchTravelWeb:async(args,options)=>{executed.push(args);assert.ok(options.signal);return {...successful,sources:[source('search-snippet')]};},fetchTravelPage:async(args,options)=>{executed.push(args);assert.equal(options.expectedTitle,source().title);return successful;}}});
   assert.equal(executed.length,2);assert.equal(result.value.sourceIds[0],'web-fixture');assert.equal(result.research.status,'ok');assert.equal(result.research.sources.length,1);assert.equal(result.research.sources[0].accessStatus,'fetched');assert.equal(result.research.sources[0].fetchedAt,source().fetchedAt);
   assert.equal(stub.calls[0].thinking.type,'disabled');assert.equal(stub.calls[0].tools.length,2);
   const tool=stub.calls[1].messages.find(message=>message.role==='tool');assert.equal(tool.tool_call_id,'lookup');assert.equal(JSON.parse(tool.content).sources[0].accessStatus,'search-snippet');
@@ -279,6 +279,51 @@ test('source-name errors receive one bounded repair with the same evidence and n
   assert.equal(result.status,'ready');assert.equal(result.stops[0].name,'天环广场');assert.equal(stub.calls.length,5);assert.equal(tools,1);
 });
 
+test('a parent venue and its explicit zone cannot fill separate days and receive bounded repair then coverage supplementation',async()=>{
+  const stop=name=>({name,minutes:60,transit:0,story:'游览建议，营业待确认。',sourceIds:['web-fixture']});
+  const draft={title:'广州两天逛街',days:[{dayIndex:1,stops:[stop('花城汇')]},{dayIndex:2,stops:[stop('花城汇中区')]}]};
+  const repaired={...draft,days:[draft.days[0],{dayIndex:2,stops:[]}]};
+  const completed={...draft,days:[draft.days[0],{dayIndex:2,stops:[stop('天环广场')]}]};
+  let repairs=0,supplements=0;
+  const stub=provider([{intent:'plan',reply:'按条件起草。'},toolMessage([toolCall('search_travel_web',{query:'广州购物地点',city:'广州'})]),draft,request=>{
+    repairs++;assert.equal(request.tools,undefined);const data=JSON.parse(request.messages.at(-1).content);
+    assert.match(data.validationError,/花城汇.*花城汇中区.*同一地点|同一地点.*花城汇.*花城汇中区/);return repaired;
+  },request=>{
+    supplements++;assert.ok(request.tools?.length);assert.deepEqual(JSON.parse(request.messages.at(-1).content).missingDays,[2]);return completed;
+  },matchingGuide]);
+  const result=await chatTravel({description:'广州两天每天3小时，先出方案',profile:emptyTravelProfile(),mode:'ai',textRevision:true},{...stub,advisorEnabled:true,toolImplementations:{searchTravelWeb:async()=>({...successful,sources:[{...source(),excerpt:'花城汇有花城汇中区；天环广场是另一个购物地点。'}]})}});
+  assert.equal(result.kind,'plan');assert.deepEqual(result.stops.map(stop=>stop.name),['花城汇','天环广场']);assert.equal(result.planningCoverage.status,'complete');
+  assert.equal(result.planningCoverage.supplementAttempts,1);assert.equal(repairs,1);assert.equal(supplements,1);assert.equal(stub.calls.length,6);
+});
+
+test('explicit phases or directional zones repeated after repair stay partial and preserve the accepted trip',async()=>{
+  for(const names of [['测试文化园一期','测试文化园（二期）'],['测试文化园第1期','测试文化园第2期'],['示例湖公园（东区）','示例湖公园西区']]){
+    const draft={title:'杭州两天游览',days:names.map((name,index)=>({dayIndex:index+1,stops:[{name,minutes:60,transit:0,story:'测试游览建议。',sourceIds:['web-fixture']}]}))};
+    const currentPlan=savedAdvisorTrip(),before=JSON.stringify(currentPlan);
+    const stub=provider([{intent:'plan',reply:'按条件重新起草。'},toolMessage([toolCall('search_travel_web',{query:'杭州游览资料',city:'杭州'})]),draft,draft]);
+    const result=await chatTravel({description:'重新规划杭州两天每天3小时，先出方案',profile:emptyTravelProfile(),currentPlan,mode:'ai',textRevision:true},{...stub,advisorEnabled:true,toolImplementations:{searchTravelWeb:async()=>({...successful,sources:[{...source(),title:'测试游览资料',excerpt:names.join('、')} ]})}});
+    assert.equal(result.kind,'clarify',names.join(' / '));assert.equal(result.status,'partial');assert.equal(result.stops,undefined);assert.equal(result.days,undefined);assert.match(result.assistantReply,/同一地点.*跨日/);
+    assert.equal(stub.calls.length,4,'A failed section repair is bounded to one attempt');assert.equal(JSON.stringify(currentPlan),before);
+  }
+});
+
+test('independent places and named branches sharing prefixes remain valid without a section repair',async()=>{
+  for(const names of [['示例湖公园','示例湖湿地公园'],['示例湖公园东区','示例湖公园东区美术馆'],['青禾茶楼（东区店）','青禾茶楼（西区店）'],['青禾茶楼（一期店）','青禾茶楼（二期店）']]){
+    const draft={title:'杭州两天游览',days:names.map((name,index)=>({dayIndex:index+1,stops:[{name,minutes:60,transit:0,story:'测试游览建议。',sourceIds:['web-fixture']}]}))};
+    const stub=provider([{intent:'plan',reply:'按条件起草。'},toolMessage([toolCall('search_travel_web',{query:'杭州游览资料',city:'杭州'})]),draft,matchingGuide]);
+    const result=await chatTravel({description:'杭州两天每天3小时，先出方案',profile:emptyTravelProfile(),mode:'ai',textRevision:true},{...stub,advisorEnabled:true,toolImplementations:{searchTravelWeb:async()=>({...successful,sources:[{...source(),title:'测试游览资料',excerpt:names.join('、')}]})}});
+    assert.equal(result.kind,'plan',names.join(' / '));assert.deepEqual(result.stops.map(stop=>stop.name),names);assert.equal(result.planningCoverage.status,'complete');assert.equal(stub.calls.length,4,'Distinct branches or independently named venues need no duplicate repair');
+  }
+});
+
+test('visiting explicitly named sections of one venue on the same day remains valid',async()=>{
+  const names=['测试文化园东区','测试文化园西区'];
+  const draft={title:'杭州一天游览',days:[{dayIndex:1,stops:names.map((name,index)=>({name,minutes:60,transit:index?10:0,story:'在同一园区顺路游览。',sourceIds:['web-fixture']}))}]};
+  const stub=provider([{intent:'plan',reply:'按条件起草。'},toolMessage([toolCall('search_travel_web',{query:'杭州游览资料',city:'杭州'})]),draft,matchingGuide]);
+  const result=await chatTravel({description:'杭州一天每天3小时，先出方案',profile:emptyTravelProfile(),mode:'ai',textRevision:true},{...stub,advisorEnabled:true,toolImplementations:{searchTravelWeb:async()=>({...successful,sources:[{...source(),title:'测试游览资料',excerpt:names.join('、')}]})}});
+  assert.equal(result.kind,'plan');assert.deepEqual(result.stops.map(stop=>stop.name),names);assert.ok(result.stops.every(stop=>stop.dayIndex===1));assert.equal(stub.calls.length,4);
+});
+
 test('complete zero-based provider days normalize safely without spending the source-repair attempt',async()=>{
   const draft={title:'广州两天逛街',days:[{dayIndex:0,stops:[{name:'天环广场',minutes:60,transit:0,story:'逛街建议。',sourceIds:['web-fixture']}]},{dayIndex:1,stops:[{name:'正佳广场',minutes:60,transit:0,story:'逛街建议。',sourceIds:['web-fixture']}]}]};
   const stub=provider([{intent:'plan',reply:'按条件起草。'},toolMessage([toolCall('search_travel_web',{query:'广州天环正佳',city:'广州'})]),draft,matchingGuide]);
@@ -319,15 +364,15 @@ test('an overfull daily proposal is repaired once using explicit capacity while 
 });
 
 test('a still-overfull repair accepts a feasible schedule with mandatory stops and explicit optional omissions',async()=>{
-  const profile=emptyTravelProfile();for(const [field,value]of Object.entries({destination:'广州',dayCount:3,dailyHours:4,startTime:'09:00',pace:'active',requiredPlaces:['广州塔']}))profile.fields[field]={value,status:'confirmed'};
+  const profile=emptyTravelProfile();for(const [field,value]of Object.entries({destination:'广州',dayCount:1,dailyHours:4,startTime:'09:00',pace:'active',requiredPlaces:['广州塔']}))profile.fields[field]={value,status:'confirmed'};
   const stop=(name,minutes,transit)=>({name,minutes,transit,story:'游览建议，实际开放待确认。',sourceIds:['web-fixture']});
-  const draft={title:'广州三天旅行',days:[{dayIndex:1,stops:[stop('广东省博物馆',90,0),stop('广州塔',180,20)]},{dayIndex:2,stops:[]},{dayIndex:3,stops:[]}]};
+  const draft={title:'广州一天旅行',days:[{dayIndex:1,stops:[stop('广东省博物馆',90,0),stop('广州塔',180,20)]}]};
   let searches=0;
   const stub=provider([{intent:'plan',reply:'按已知条件先出方案。'},toolMessage([toolCall('search_travel_web',{query:'广州 广州塔 广东省博物馆',city:'广州'})]),draft,request=>{
     const data=JSON.parse(request.messages.at(-1).content);assert.deepEqual(data.dailyLimits,{minutes:240,maxStops:4});assert.match(data.validationError,/容量/);assert.equal(request.tools,undefined);return draft;
   },matchingGuide]);
-  const result=await chatTravel({description:'广州3天，每天4小时，紧凑游览，必去广州塔，先出方案',profile,mode:'ai',textRevision:true},{...stub,advisorEnabled:true,toolImplementations:{searchTravelWeb:async()=>{searches++;return {...successful,sources:[{...source(),excerpt:'广州塔和广东省博物馆均为广州旅游参观地点。'}]};}}});
-  assert.equal(result.kind,'plan');assert.equal(result.status,'ready');assert.equal(result.days.length,3);assert.deepEqual(result.stops.map(stop=>stop.name),['广州塔']);assert.equal(result.days[0].totalMinutes,180);
+  const result=await chatTravel({description:'广州1天，每天4小时，紧凑游览，必去广州塔，先出方案',profile,mode:'ai',textRevision:true},{...stub,advisorEnabled:true,toolImplementations:{searchTravelWeb:async()=>{searches++;return {...successful,sources:[{...source(),excerpt:'广州塔和广东省博物馆均为广州旅游参观地点。'}]};}}});
+  assert.equal(result.kind,'plan');assert.equal(result.status,'ready');assert.equal(result.days.length,1);assert.deepEqual(result.stops.map(stop=>stop.name),['广州塔']);assert.equal(result.days[0].totalMinutes,180);
   assert.ok(result.days.every(day=>day.totalMinutes<=240&&day.stops.length<=4));assert.ok(result.warnings.some(warning=>warning.includes('广东省博物馆')&&warning.includes('可选地点')));
   assert.equal(result.guide.status,'ready');assert.deepEqual(result.guide.days.flatMap(day=>day.stops.map(stop=>stop.name)),['广州塔']);assert.deepEqual(result.profile.fields.requiredPlaces.value,['广州塔']);assert.equal(searches,1);assert.equal(stub.calls.length,5);
 });
@@ -347,6 +392,172 @@ test('optional-omission fallback still rejects missing or over-capacity mandator
   }
 });
 
+function threeDayCoverageFixture(){
+  const profile=emptyTravelProfile();for(const [field,value]of Object.entries({destination:'广州',dayCount:3,dailyHours:4,startTime:'09:00',pace:'active',requiredPlaces:['广州塔']}))profile.fields[field]={value,status:'confirmed'};
+  const stop=(name,sourceId='web-fixture')=>({name,minutes:90,transit:0,story:'游览建议，营业和预约待确认。',sourceIds:[sourceId]});
+  const sparse={title:'广州三天旅行',days:[{dayIndex:1,stops:[stop('广州塔')]},{dayIndex:2,stops:[]},{dayIndex:3,stops:[]}]};
+  const complete={title:'广州三天旅行',days:[sparse.days[0],{dayIndex:2,stops:[stop('陈家祠','web-supplement')]},{dayIndex:3,stops:[stop('天环广场','web-supplement')]}]};
+  const first={...successful,sources:[{...source(),excerpt:'广州塔位于广州市，是城市旅游参观地点。'}]};
+  const extra={...successful,sources:[{...source(),id:'web-supplement',url:'https://www.gz.gov.cn/extra',excerpt:'陈家祠可参观岭南建筑；天环广场提供购物体验。'}]};
+  return {profile,sparse,complete,first,extra};
+}
+
+test('a sparse three-day proposal receives bounded research supplementation before it can become a complete trip',async()=>{
+  const {profile,sparse,complete,first,extra}=threeDayCoverageFixture();let searches=0;
+  const stub=provider([{intent:'plan',reply:'按已知条件规划。'},toolMessage([toolCall('search_travel_web',{query:'广州 广州塔',city:'广州'})]),sparse,request=>{
+    assert.ok(request.tools?.length);const data=JSON.parse(request.messages.at(-1).content);assert.deepEqual(data.missingDays,[2,3]);assert.ok(data.availableResearch.sources.some(item=>item.id==='web-fixture'));
+    return toolMessage([toolCall('search_travel_web',{query:'广州 文化 购物 三天',city:'广州'},'supplement')]);
+  },complete,matchingGuide]);
+  const result=await chatTravel({description:'广州3天每天4小时，必去广州塔，先出方案',profile,mode:'ai',textRevision:true},{...stub,advisorEnabled:true,toolImplementations:{searchTravelWeb:async()=>++searches===1?first:extra}});
+  assert.equal(result.kind,'plan');assert.equal(result.status,'ready');assert.equal(result.days.length,3);assert.ok(result.days.every(day=>day.stops.length>0&&day.totalMinutes<=240));
+  assert.deepEqual(result.planningCoverage,{status:'complete',requestedDays:3,coveredDays:[1,2,3],missingDays:[],freeDays:[],supplementAttempts:1});
+  assert.deepEqual(result.stops.map(stop=>stop.name),['广州塔','陈家祠','天环广场']);assert.ok(result.stops.slice(1).every(stop=>stop.sourceIds.includes('web-supplement')));assert.equal(result.research.sources.length,2);assert.equal(searches,2);assert.equal(stub.calls.length,6);
+});
+
+test('remaining uncovered days are explicit partial results and never replace the accepted trip or claim completion',async()=>{
+  const {profile,sparse,first}=threeDayCoverageFixture(),currentPlan=savedAdvisorTrip(),before=JSON.stringify(currentPlan);let searches=0;
+  const stub=provider([{intent:'plan',reply:'重新按三天规划。'},toolMessage([toolCall('search_travel_web',{query:'广州 广州塔',city:'广州'})]),sparse,toolMessage([toolCall('search_travel_web',{query:'广州 其他旅行地点',city:'广州'},'supplement')]),sparse]);
+  const result=await chatTravel({description:'重新规划广州3天每天4小时，必去广州塔，先出方案',profile,currentPlan,mode:'ai',textRevision:true},{...stub,advisorEnabled:true,toolImplementations:{searchTravelWeb:async()=>{searches++;return first;}}});
+  assert.equal(result.kind,'clarify');assert.equal(result.status,'partial');assert.equal(result.stops,undefined);assert.equal(result.days,undefined);assert.equal(result.guide,undefined);
+  assert.deepEqual(result.planningCoverage.missingDays,[2,3]);assert.equal(result.planningCoverage.supplementAttempts,1);assert.match(result.assistantReply,/第2天.*第3天/);assert.match(result.assistantReply,/原方案.*保留|保留.*原方案/);assert.equal(JSON.stringify(currentPlan),before);assert.equal(searches,2);assert.equal(stub.calls.length,5);
+});
+
+test('explicitly requested free days are preserved without inventing extra attractions',async()=>{
+  const {profile,sparse,first}=threeDayCoverageFixture();let searches=0;
+  const stub=provider([{intent:'plan',reply:'按指定自由日安排。'},toolMessage([toolCall('search_travel_web',{query:'广州 广州塔',city:'广州'})]),sparse,matchingGuide]);
+  const result=await chatTravel({description:'广州3天每天4小时，先出方案，第2天和第3天自由活动',profile,mode:'ai',textRevision:true},{...stub,advisorEnabled:true,toolImplementations:{searchTravelWeb:async()=>{searches++;return first;}}});
+  assert.equal(result.kind,'plan');assert.equal(result.status,'ready');assert.deepEqual(result.planningCoverage.freeDays,[2,3]);assert.deepEqual(result.planningCoverage.missingDays,[]);assert.equal(result.planningCoverage.supplementAttempts,0);assert.deepEqual(result.stops.map(stop=>stop.name),['广州塔']);assert.equal(searches,1);assert.equal(stub.calls.length,4);
+});
+
+test('requests to complete an existing sparse trip rebuild the route instead of retaining empty days',async()=>{
+  for(const description of ['请补齐三天的行程','你逗我呢 三天里有两天自由日啊']){
+    const {profile,sparse,complete,first,extra}=threeDayCoverageFixture();
+    const currentPlan={city:'广州',profile,input:{destination:'广州',dayCount:3,dailyHours:4,hours:4},days:sparse.days,stops:sparse.days.flatMap(day=>day.stops.map(stop=>({...stop,dayIndex:day.dayIndex})))},before=JSON.stringify(currentPlan);
+    const stub=provider([{intent:'answer',reply:'这份方案还有两天尚未安排。',profilePatch:{dayCount:2}},toolMessage([toolCall('search_travel_web',{query:'广州 三天 美食 购物 文化',city:'广州'})]),complete,matchingGuide]);
+    const result=await chatTravel({description,profile,currentPlan,mode:'ai',textRevision:true},{...stub,advisorEnabled:true,toolImplementations:{searchTravelWeb:async()=>({...successful,sources:[...first.sources,...extra.sources]})}});
+    assert.equal(result.kind,'plan');assert.ok(result.days.every(day=>day.stops.length));assert.equal(result.planningCoverage.status,'complete');assert.deepEqual(result.planningCoverage.freeDays,[]);assert.equal(result.profile.fields.dayCount.value,3);assert.equal(stub.calls.length,4);assert.equal(JSON.stringify(currentPlan),before);
+  }
+});
+
+test('the explicit three-day replan command outranks embedded how-to questions and preserves interview facts',async()=>{
+  const {profile,sparse,complete,first,extra}=threeDayCoverageFixture();
+  profile.fields.interests={value:['美食','购物'],status:'confirmed'};profile.fields.stayArea={value:'广州东附近',status:'confirmed'};profile.fields.transport={value:'transit',status:'confirmed'};
+  profile.interview={status:'completed',topic:null,skipped:['travelDates','companions','budget','diet'],step:16,total:16,answers:[{field:'destination',question:'去哪里？',answer:'广州'},{field:'dayCount',question:'玩几天？',answer:'三天'},{field:'dailyHours',question:'每天多久？',answer:'每天4小时'}],additions:['必去广州塔']};
+  const currentPlan={city:'广州',profile,input:{destination:'广州',dayCount:3,dailyHours:4,hours:4},days:sparse.days,stops:sparse.days.flatMap(day=>day.stops.map(stop=>({...stop,dayIndex:day.dayIndex})))},before=JSON.stringify(currentPlan);
+  const description='请重新规划完整三天，继续沿用我已经回答的广州、每天4小时、美食和购物、必去广州塔、住广州东附近和地铁出行。每天按顺路的片区安排，不要把同一个地方的不同分区拆到不同天凑数，也不要让后两天变成自由日。请补充每站怎么玩，以及每天顺路的具体餐厅、完整分店名、地址和推荐菜。之前跳过的条件继续留空。';
+  const stub=provider([{intent:'plan',reply:'重新按已给条件规划。',profilePatch:{dayCount:2}},toolMessage([toolCall('search_travel_web',{query:'广州三天旅行',city:'广州'})]),complete,matchingGuide,toolMessage([toolCall('search_travel_web',{query:'广州餐厅 地址'})]),matchingDining]);
+  const result=await chatTravel({description,profile,currentPlan,mode:'ai',textRevision:true},{...stub,advisorEnabled:true,toolImplementations:{searchTravelWeb:async()=>({...successful,sources:[...first.sources,...extra.sources,...fixtureDiningResearch().sources]})}});
+  assert.equal(result.kind,'plan',result.assistantReply);assert.equal(result.days.length,3);assert.equal(result.profile.fields.dayCount.value,3);assert.equal(result.profile.fields.dailyHours.value,4);assert.equal(result.profile.fields.destination.value,'广州');assert.deepEqual(result.profile.fields.requiredPlaces.value,['广州塔']);
+  assert.deepEqual(result.profile.interview.answers,profile.interview.answers);assert.deepEqual(result.profile.interview.skipped,profile.interview.skipped);assert.equal(result.profile.fields.budget.status,'missing');assert.equal(result.profile.fields.travelDates.status,'missing');assert.equal(JSON.stringify(currentPlan),before);assert.ok(stub.calls.length>1,'Explicit replanning must reach route generation');
+});
+
+test('an explicit four-day replan keeps mandatory places in the same clause and ignores later-day references',async()=>{
+  const {profile,sparse,complete,first,extra}=threeDayCoverageFixture();
+  complete.days.push({dayIndex:4,stops:[{name:'正佳广场',minutes:90,transit:0,story:'购物建议，开放待确认。',sourceIds:['web-supplement']}]});extra.sources[0].excerpt+='正佳广场可以逛街。';
+  const currentPlan={city:'广州',profile,input:{destination:'广州',dayCount:3,dailyHours:4,hours:4},days:sparse.days,stops:sparse.days.flatMap(day=>day.stops.map(stop=>({...stop,dayIndex:day.dayIndex})))};
+  const stub=provider([{intent:'answer',reply:'每站可以结合兴趣体验。',profilePatch:{dayCount:2}},toolMessage([toolCall('search_travel_web',{query:'广州四天旅行',city:'广州'})]),complete,matchingGuide]);
+  const result=await chatTravel({description:'请重新规划4天并保留必去广州塔，每天4小时，也补充每站怎么玩，不要把后两天变成自由日',profile,currentPlan,mode:'ai',textRevision:true},{...stub,advisorEnabled:true,toolImplementations:{searchTravelWeb:async()=>({...successful,sources:[...first.sources,...extra.sources]})}});
+  assert.equal(result.kind,'plan',result.assistantReply);assert.equal(result.days.length,4);assert.equal(result.profile.fields.dayCount.value,4);assert.equal(result.profile.fields.dailyHours.value,4);assert.deepEqual(result.profile.fields.requiredPlaces.value,['广州塔']);assert.ok(result.stops.some(stop=>stop.name==='广州塔'));assert.equal(stub.calls.length,4);
+});
+
+test('questions, hypothetical replanning and explicit refusals do not request a replacement route',async()=>{
+  for(const description of ['怎么重新规划路线？','如果重新规划4天会怎么玩？','重新规划会丢掉我之前回答的吗？','是否需要重新规划4天？','不要重新规划，我只想知道每站怎么玩','保留现在路线，不用更换景点，第二天怎么玩？']){
+    const currentPlan=savedAdvisorTrip(),before=JSON.stringify(currentPlan),profile=currentPlan.profile;
+    const stub=provider([{intent:'answer',reply:'我可以解释安排，现有路线继续保留。',profilePatch:{dayCount:4}}]);
+    const result=await chatTravel({description,profile,currentPlan,mode:'ai',textRevision:true},{...stub,advisorEnabled:true});
+    assert.equal(result.kind,'answer',description);assert.equal(result.stops,undefined);assert.deepEqual(result.profile,profile);assert.equal(stub.calls.length,1);assert.equal(JSON.stringify(currentPlan),before);
+  }
+});
+
+test('an explicit completion command does not depend on a valid conversational intent or reply',async()=>{
+  const {profile,sparse,complete,first,extra}=threeDayCoverageFixture();
+  const currentPlan={city:'广州',profile,input:{destination:'广州',dayCount:3,dailyHours:4,hours:4},days:sparse.days,stops:sparse.days.flatMap(day=>day.stops.map(stop=>({...stop,dayIndex:day.dayIndex})))};
+  const stub=provider([{profilePatch:{dayCount:2,inventedField:'不能确认'}},toolMessage([toolCall('search_travel_web',{query:'广州三天旅行地点',city:'广州'})]),complete,matchingGuide]);
+  const result=await chatTravel({description:'请补齐三天行程，改成每天6小时',profile,currentPlan,mode:'ai',textRevision:true},{...stub,advisorEnabled:true,toolImplementations:{searchTravelWeb:async()=>({...successful,sources:[...first.sources,...extra.sources]})}});
+  assert.equal(result.kind,'plan');assert.equal(result.profile.fields.dayCount.value,3);assert.equal(result.profile.fields.dailyHours.value,6);assert.ok(result.days.every(day=>day.stops.length));assert.equal(stub.calls.length,4);
+});
+
+test('a completion request also applies explicitly revised duration, pace and mandatory places',async()=>{
+  const {profile,sparse,complete,first,extra}=threeDayCoverageFixture();
+  const currentPlan={city:'广州',profile,input:{destination:'广州',dayCount:3,dailyHours:4,hours:4},days:sparse.days,stops:sparse.days.flatMap(day=>day.stops.map(stop=>({...stop,dayIndex:day.dayIndex})))};
+  complete.days.push({dayIndex:4,stops:[{name:'正佳广场',minutes:90,transit:0,story:'购物体验，营业待确认。',sourceIds:['web-supplement']}]});extra.sources[0].excerpt+='正佳广场为广州购物场所。';
+  const stub=provider([{intent:'plan',reply:'补齐行程并更新这轮要求。'},toolMessage([toolCall('search_travel_web',{query:'广州 陈家祠 广州塔 购物',city:'广州'})]),complete,matchingGuide]);
+  const result=await chatTravel({description:'补齐三天，改成每天6小时，改成4天，轻松一点，必去陈家祠',profile,currentPlan,mode:'ai',textRevision:true},{...stub,advisorEnabled:true,toolImplementations:{searchTravelWeb:async()=>({...successful,sources:[...first.sources,...extra.sources]})}});
+  assert.equal(result.profile.fields.dailyHours.value,6);assert.equal(result.profile.fields.dayCount.value,4);assert.equal(result.profile.fields.pace.value,'easy');assert.ok(result.profile.fields.requiredPlaces.value.includes('陈家祠'));assert.ok(result.profile.fields.requiredPlaces.value.includes('广州塔'));
+  assert.equal(result.kind,'plan');assert.equal(result.days.length,4);assert.ok(result.days.every(day=>day.hours===6&&day.stops.length));assert.equal(result.planningCoverage.status,'complete');assert.equal(stub.calls.length,4);
+});
+
+test('completion complaints about later empty days never shorten the confirmed trip',async()=>{
+  for(const description of ['请补齐这三天的具体行程，沿用我已回答的条件，每天4小时，不要把后两天空成自由日。也请给每天推荐顺路的具体吃饭店铺、完整分店名、地址和点菜建议。','补齐三天，剩下两天还是空白','请补齐行程，两天没安排具体地点']){
+    const {profile,sparse,complete,first,extra}=threeDayCoverageFixture();
+    const currentPlan={city:'广州',profile,input:{destination:'广州',dayCount:3,dailyHours:4,hours:4},days:sparse.days,stops:sparse.days.flatMap(day=>day.stops.map(stop=>({...stop,dayIndex:day.dayIndex})))};
+    const stub=provider([{intent:'plan',reply:'补齐安排。',profilePatch:{dayCount:2}},toolMessage([toolCall('search_travel_web',{query:'广州 旅行',city:'广州'})]),complete,matchingGuide,toolMessage([toolCall('search_travel_web',{query:'广州 餐厅 地址'})]),matchingDining]);
+    const result=await chatTravel({description,profile,currentPlan,mode:'ai',textRevision:true},{...stub,advisorEnabled:true,toolImplementations:{searchTravelWeb:async()=>({...successful,sources:[...first.sources,...extra.sources,...fixtureDiningResearch().sources]})}});
+    assert.equal(result.profile.fields.dayCount.value,3);assert.equal(result.kind,'plan');assert.equal(result.days.length,3);assert.ok(result.days.every(day=>day.stops.length));assert.equal(result.profile.fields.dailyHours.value,4);
+  }
+});
+
+test('recorded manual free days survive reselection and explicit completion cancels them',async()=>{
+  for(const completeRequested of [false,true]){
+    const {profile,sparse,complete,first,extra}=threeDayCoverageFixture();
+    const currentPlan={city:'广州',profile,input:{destination:'广州',dayCount:3,dailyHours:4,hours:4},days:sparse.days,stops:sparse.days.flatMap(day=>day.stops.map(stop=>({...stop,dayIndex:day.dayIndex}))),planningCoverage:{status:'complete',requestedDays:3,coveredDays:[1],missingDays:[],freeDays:[2,3],supplementAttempts:0}};
+    const stub=provider([{intent:'plan',reply:'按你的要求调整。'},toolMessage([toolCall('search_travel_web',{query:'广州旅行地点',city:'广州'})]),completeRequested?complete:sparse,matchingGuide]);
+    const result=await chatTravel({description:completeRequested?'请补齐三天的行程':'重新规划广州三天，先出方案',profile,currentPlan,mode:'ai',textRevision:true},{...stub,advisorEnabled:true,toolImplementations:{searchTravelWeb:async()=>({...successful,sources:[...first.sources,...extra.sources]})}});
+    assert.equal(result.kind,'plan');assert.deepEqual(result.planningCoverage.freeDays,completeRequested?[]:[2,3]);assert.equal(result.planningCoverage.status,'complete');assert.equal(stub.calls.length,4);
+    if(!completeRequested){
+      const budgetOnly=provider([{intent:'plan',reply:'只改预算，保留已明确的自由日。'}]);
+      const revised=await chatTravel({description:'预算改成每人全程500元',profile:result.profile,currentPlan:result,mode:'ai',textRevision:true},{...budgetOnly,advisorEnabled:true});
+      assert.equal(revised.kind,'plan');assert.deepEqual(revised.planningCoverage.freeDays,[2,3]);assert.equal(revised.planningCoverage.status,'complete');assert.equal(budgetOnly.calls.length,1);
+    }
+  }
+});
+
+test('a specific wish for a free day is not interpreted as a complaint about incomplete planning',async()=>{
+  for(const phrase of ['第三天想自由活动','第3天设为自由日']){
+    const {profile,complete,first,extra}=threeDayCoverageFixture();complete.days[2].stops=[];
+    const stub=provider([{intent:'plan',reply:'第三天按你的要求自由活动。'},toolMessage([toolCall('search_travel_web',{query:'广州 广州塔 陈家祠',city:'广州'})]),complete,matchingGuide]);
+    const result=await chatTravel({description:`广州3天每天4小时，先出方案，${phrase}`,profile,mode:'ai',textRevision:true},{...stub,advisorEnabled:true,toolImplementations:{searchTravelWeb:async()=>({...successful,sources:[...first.sources,...extra.sources]})}});
+    assert.equal(result.kind,'plan');assert.deepEqual(result.planningCoverage.freeDays,[3]);assert.deepEqual(result.planningCoverage.coveredDays,[1,2]);assert.equal(stub.calls.length,4);
+  }
+});
+
+test('coverage supplementation cannot fill empty dates using an unsourced invented attraction',async()=>{
+  const {profile,sparse,complete,first,extra}=threeDayCoverageFixture();complete.days[1].stops[0].name='资料没有提到的景点';let searches=0;
+  const stub=provider([{intent:'plan',reply:'按三天规划。'},toolMessage([toolCall('search_travel_web',{query:'广州 广州塔',city:'广州'})]),sparse,toolMessage([toolCall('search_travel_web',{query:'广州 文化 购物',city:'广州'},'supplement')]),complete]);
+  const result=await chatTravel({description:'广州3天每天4小时，先出方案',profile,mode:'ai',textRevision:true},{...stub,advisorEnabled:true,toolImplementations:{searchTravelWeb:async()=>++searches===1?first:extra}});
+  assert.equal(result.kind,'clarify');assert.equal(result.status,'partial');assert.equal(result.stops,undefined);assert.ok(result.warnings.some(warning=>warning.includes('资料没有提到的景点')&&warning.includes('没有出现在')));assert.deepEqual(result.planningCoverage.missingDays,[2]);assert.equal(searches,2);assert.equal(stub.calls.length,5);
+});
+
+test('a repaired complete route may omit only unverified optional names or empty citations and reports them',async()=>{
+  for(const optional of [
+    {name:'珠江新城（花城广场一带）',sourceIds:['web-fixture']},
+    {name:'广东省博物馆',sourceIds:[]},
+  ]){
+    const {profile,complete,first,extra}=threeDayCoverageFixture();first.sources[0].excerpt+='附近有花城广场。';
+    complete.days[0].stops.push({...optional,minutes:30,transit:10,story:'可选游览建议。'});const original=JSON.stringify(complete);
+    const stub=provider([{intent:'plan',reply:'按三天安排。'},toolMessage([toolCall('search_travel_web',{query:'广州塔 文化 购物',city:'广州'})]),complete,request=>{assert.equal(request.tools,undefined);assert.match(JSON.parse(request.messages.at(-1).content).validationError,/没有出现在|缺少/);return complete;},matchingGuide]);
+    const result=await chatTravel({description:'广州3天每天4小时，先出方案',profile,mode:'ai',textRevision:true},{...stub,advisorEnabled:true,toolImplementations:{searchTravelWeb:async()=>({...successful,sources:[...first.sources,...extra.sources]})}});
+    assert.equal(result.kind,'plan');assert.equal(result.status,'ready');assert.deepEqual(result.stops.map(stop=>stop.name),['广州塔','陈家祠','天环广场']);assert.equal(result.planningCoverage.status,'complete');
+    assert.ok(result.warnings.some(warning=>warning.includes(optional.name)&&warning.includes('可选')&&warning.includes('资料')));assert.equal(JSON.stringify(complete),original);assert.equal(stub.calls.length,5);
+  }
+});
+
+test('omitting an unverified optional day still invokes coverage supplementation and validates the supplemented draft',async()=>{
+  const {profile,complete,first,extra}=threeDayCoverageFixture();const invalid={name:'珠江新城（花城广场一带）',minutes:30,transit:0,story:'可选建议。',sourceIds:['web-fixture']};
+  const initial=structuredClone(complete);initial.days[1].stops=[invalid];complete.days[1].stops.push(invalid);first.sources[0].excerpt+='附近有花城广场。';
+  const stub=provider([{intent:'plan',reply:'按三天安排。'},toolMessage([toolCall('search_travel_web',{query:'广州旅行地点',city:'广州'})]),initial,initial,request=>{assert.ok(request.tools?.length);assert.deepEqual(JSON.parse(request.messages.at(-1).content).missingDays,[2]);return complete;},matchingGuide]);
+  const result=await chatTravel({description:'广州3天每天4小时，先出方案',profile,mode:'ai',textRevision:true},{...stub,advisorEnabled:true,toolImplementations:{searchTravelWeb:async()=>({...successful,sources:[...first.sources,...extra.sources]})}});
+  assert.equal(result.kind,'plan');assert.deepEqual(result.stops.map(stop=>stop.name),['广州塔','陈家祠','天环广场']);assert.equal(result.planningCoverage.supplementAttempts,1);assert.equal(result.warnings.filter(warning=>warning.includes(invalid.name)).length,1);assert.equal(stub.calls.length,6);
+});
+
+test('a required name without matching evidence cannot be discarded by the optional-source fallback',async()=>{
+  const {profile,complete,first,extra}=threeDayCoverageFixture();const required='珠江新城（花城广场一带）';profile.fields.requiredPlaces.value.push(required);
+  complete.days[0].stops.push({name:required,minutes:30,transit:10,story:'游览建议。',sourceIds:['web-fixture']});first.sources[0].excerpt+='附近有花城广场。';
+  const stub=provider([{intent:'plan',reply:'按全部必去安排。'},toolMessage([toolCall('search_travel_web',{query:'广州旅行地点',city:'广州'})]),complete,complete]);
+  const result=await chatTravel({description:'广州3天每天4小时，先出方案',profile,mode:'ai',textRevision:true},{...stub,advisorEnabled:true,toolImplementations:{searchTravelWeb:async()=>({...successful,sources:[...first.sources,...extra.sources]})}});
+  assert.equal(result.kind,'clarify');assert.equal(result.status,'partial');assert.equal(result.stops,undefined);assert.ok(result.profile.fields.requiredPlaces.value.includes(required));assert.match(result.assistantReply,/没有出现在/);assert.equal(stub.calls.length,4);
+});
+
 test('diet and companion revisions retain accepted places while refreshing advice instead of reusing incompatible food guidance',async()=>{
   for(const [description,profilePatch]of [['我不吃辣，先出方案',{diet:{restrictions:['辣']}}],['我们三个人，先出方案',{companions:{count:3}}]]){
     const profile=emptyTravelProfile();for(const [field,value]of Object.entries({destination:'广州',dayCount:1,dailyHours:3,startTime:'09:00',pace:'normal'}))profile.fields[field]={value,status:'confirmed'};
@@ -362,16 +573,79 @@ function savedAdvisorTrip(){
   const profile=emptyTravelProfile();for(const [field,value]of Object.entries({destination:'广州',dayCount:2,dailyHours:4,startTime:'09:00',pace:'normal'}))profile.fields[field]={value,status:'confirmed'};
   return {...structuredClone(plan),city:'广州',title:'广州两天',input:{destination:'广州',dayCount:2,dailyHours:4,hours:4},profile,guide:validateTravelGuide(guide(),plan,successful)};
 }
+const fixtureDiningResearch=()=>({...successful,sources:[{...source(),id:'web-fixture-dining',url:'https://www.gz.gov.cn/fixture-dining',title:'餐饮测试资料',excerpt:'测试茶楼（旧街店）提供餐饮，具体菜单和营业请到店确认。'}]});
+function matchingDining(request){
+  const input=JSON.parse(request.messages.findLast(message=>message.role==='user').content);
+  return {days:input.acceptedDays.map(day=>({dayIndex:day.dayIndex,meals:[{stopId:day.stops[0].stopId,kind:'restaurant',name:'测试茶楼（旧街店）',note:'两人可按忌口和饥饿程度点餐，实际菜单待确认。',sourceIds:['web-fixture-dining']}]}))};
+}
 
 test('vague dissatisfaction asks a grounded follow-up without changing the accepted plan or confirming guessed preferences',async()=>{
   for(const description of ['这个攻略不满意','我不喜欢，改善一下','优化一下']){
     const currentPlan=savedAdvisorTrip(),before=JSON.stringify(currentPlan),stub=provider([{intent:'plan',reply:'我来改善。',profilePatch:{interests:['徒步']},followUp:{field:'diet',question:'你希望先把餐饮建议写具体，还是调整口味和忌口？'}}]);
     const result=await chatTravel({description,profile:currentPlan.profile,currentPlan,mode:'ai',textRevision:true},{...stub,advisorEnabled:true});
     assert.equal(result.kind,'clarify');assert.deepEqual(result.profile.fields,currentPlan.profile.fields);assert.equal(result.followUps[0].field,'diet');assert.match(result.assistantReply,/餐饮/);assert.equal(result.stops,undefined);assert.equal(JSON.stringify(currentPlan),before);assert.equal(stub.calls.length,1);
-    const next=provider([{intent:'plan',reply:'把餐饮写得更具体。'},request=>{const value=matchingGuide(request);value.days[0].stops[0].food[0].note='两人可先选清淡点心，再按饥饿程度加餐，实际菜单待确认。';return value;}]);
-    const revised=await chatTravel({description:'把餐饮写具体点',profile:result.profile,currentPlan,mode:'ai',textRevision:true},{...next,advisorEnabled:true});
-    assert.equal(revised.guideUpdateStatus,'updated');assert.deepEqual(revised.stops,currentPlan.stops);assert.deepEqual(revised.days,currentPlan.days);assert.deepEqual(revised.profile.fields,currentPlan.profile.fields);assert.match(revised.guide.days[0].stops[0].food[0].note,/两人/);assert.equal(revised.guide.days[0].stops[0].howToPlay,currentPlan.guide.days[0].stops[0].howToPlay);assert.equal(next.calls.length,2);
+    const next=provider([{intent:'plan',reply:'把餐饮写得更具体。'},request=>{const value=matchingGuide(request);value.days[0].stops[0].food[0].note='两人可先选清淡点心，再按饥饿程度加餐，实际菜单待确认。';return value;},toolMessage([toolCall('search_travel_web',{query:'广州 陈家祠 附近 餐厅 地址'})]),matchingDining]);
+    const revised=await chatTravel({description:'把餐饮写具体点',profile:result.profile,currentPlan,mode:'ai',textRevision:true},{...next,advisorEnabled:true,toolImplementations:{searchTravelWeb:async()=>fixtureDiningResearch()}});
+    assert.equal(revised.guideUpdateStatus,'updated');assert.deepEqual(revised.stops,currentPlan.stops);assert.deepEqual(revised.days,currentPlan.days);assert.deepEqual(revised.profile.fields,currentPlan.profile.fields);assert.match(revised.guide.days[0].stops[0].food[0].note,/两人/);assert.equal(revised.guide.days[0].stops[0].howToPlay,currentPlan.guide.days[0].stops[0].howToPlay);assert.equal(revised.guide.diningStatus,'ready');assert.equal(next.calls.length,4);
   }
+});
+
+function savedThreeDayDiningTrip(){
+  const currentPlan=savedAdvisorTrip();currentPlan.profile.fields.dayCount.value=3;currentPlan.input.dayCount=3;
+  const names=[['gz-chen-clan-hall','陈家祠'],['gz-museum','广东省博物馆'],['gz-parc-central','天环广场']];
+  currentPlan.days=names.map(([id,name],index)=>({dayIndex:index+1,stops:[{id,name,minutes:60,transit:0,dayIndex:index+1}]}));currentPlan.stops=currentPlan.days.flatMap(day=>day.stops);
+  currentPlan.guide={...currentPlan.guide,days:names.map(([stopId,name],index)=>({dayIndex:index+1,overview:'保留的当天游览安排',stops:[{...guide().days[0].stops[0],stopId,name}]}))};
+  return currentPlan;
+}
+
+const diningCompletionDescription='请补全这三天每天吃饭的具体餐厅、完整分店地址和推荐菜。请按当天的游览地点推荐顺路店家，并说明什么时候去吃合适。现有三天的景点顺序不变。';
+function completeDining(request){
+  const result=matchingDining(request);for(const day of result.days)for(const meal of day.meals){meal.address='测试路8号';meal.dishes=['蒸饺'];meal.mealTime='当天游览后按饥饿程度用餐';}
+  return result;
+}
+const completeDiningResearch=()=>({...fixtureDiningResearch(),sources:fixtureDiningResearch().sources.map(item=>({...item,excerpt:item.excerpt+'测试茶楼（旧街店）地址：测试路8号。菜品：蒸饺。'}))});
+
+test('completing concrete dining for all three days enriches food without replacing the route',async()=>{
+  const currentPlan=savedThreeDayDiningTrip(),before=JSON.stringify(currentPlan);
+  const stub=provider([{intent:'plan',reply:'补全每天餐厅建议。'},request=>{
+    const data=JSON.parse(request.messages.at(-1).content);assert.deepEqual(data.revision,{focus:['food']});assert.deepEqual(data.acceptedDays.map(day=>day.dayIndex),[1,2,3]);return matchingGuide(request);
+  },toolMessage([toolCall('search_travel_web',{query:'测试茶楼 地址 推荐菜'})]),completeDining]);
+  const result=await chatTravel({description:diningCompletionDescription,profile:currentPlan.profile,currentPlan,mode:'ai',textRevision:true},{...stub,advisorEnabled:true,toolImplementations:{searchTravelWeb:async()=>completeDiningResearch()}});
+  assert.equal(result.kind,'plan');assert.equal(result.guideUpdateStatus,'updated');assert.deepEqual(result.days,currentPlan.days);assert.deepEqual(result.stops,currentPlan.stops);assert.deepEqual(result.profile.fields,currentPlan.profile.fields);
+  assert.equal(result.guide.diningStatus,'ready');assert.ok(result.guide.days.every(day=>day.stops[0].food.some(food=>food.kind==='restaurant'&&food.address==='测试路8号'&&food.dishes.includes('蒸饺'))));
+  assert.equal(JSON.stringify(currentPlan),before);assert.equal(stub.calls.length,4);assert.ok(!stub.calls.some(call=>call.messages[0].content.includes('你是城市旅行顾问')));
+});
+
+test('an explicit saved-guide update survives invalid dialogue JSON or business schema without applying its patch',async()=>{
+  for(const invalid of [
+    ['{"intent":"plan","profilePatch":{"destination":"上海"','{"reply":'],
+    [{intent:'replace-everything',reply:null,profilePatch:{destination:'上海',dayCount:7,requiredPlaces:['错误地名']}}],
+  ]){
+    const currentPlan=savedThreeDayDiningTrip(),before=JSON.stringify(currentPlan);
+    const stub=provider([...invalid,request=>{
+      assert.match(request.messages[0].content,/你是旅行攻略顾问/);const data=JSON.parse(request.messages.at(-1).content);assert.deepEqual(data.revision,{focus:['food']});assert.equal(data.profile.fields.destination.value,'广州');return matchingGuide(request);
+    },toolMessage([toolCall('search_travel_web',{query:'测试茶楼 地址 推荐菜'})]),completeDining]);
+    const result=await chatTravel({description:diningCompletionDescription,profile:currentPlan.profile,currentPlan,mode:'ai',textRevision:true},{...stub,advisorEnabled:true,toolImplementations:{searchTravelWeb:async()=>completeDiningResearch()}});
+    assert.equal(result.kind,'plan');assert.equal(result.guideUpdateStatus,'updated');assert.equal(result.guide.diningStatus,'ready');assert.deepEqual(result.profile.fields,currentPlan.profile.fields);assert.deepEqual(result.days,currentPlan.days);assert.deepEqual(result.stops,currentPlan.stops);assert.equal(JSON.stringify(currentPlan),before);assert.equal(stub.calls.length,invalid.length+3);
+  }
+});
+
+test('ordinary questions keep strict dialogue JSON and business-schema failures',async()=>{
+  for(const invalid of [['{"reply":','{"reply":'],[{intent:'replace-everything',reply:null,profilePatch:{dayCount:7}}]]){
+    const currentPlan=savedThreeDayDiningTrip(),before=JSON.stringify(currentPlan),stub=provider(invalid);
+    await assert.rejects(chatTravel({description:'陈家祠附近吃什么？',profile:currentPlan.profile,currentPlan,mode:'ai',textRevision:true},{...stub,advisorEnabled:true}),invalid.length===2?/无效或不完整的 JSON/:/没有返回有效回答/);
+    assert.equal(stub.calls.length,invalid.length);assert.equal(JSON.stringify(currentPlan),before);
+  }
+});
+
+test('explicit guide updates never swallow network errors, HTTP failures or cancellation',async()=>{
+  const currentPlan=savedThreeDayDiningTrip(),before=JSON.stringify(currentPlan),body={description:diningCompletionDescription,profile:currentPlan.profile,currentPlan,mode:'ai',textRevision:true};
+  for(const [fetchImpl,error] of [[async()=>{throw new Error('fixture offline');},/网络连接失败/],[async()=>Response.json({error:'fixture outage'},{status:503}),/调用失败/]]){
+    let calls=0;await assert.rejects(chatTravel(body,{key:'fixture',advisorEnabled:true,fetchImpl:(...args)=>{calls++;return fetchImpl(...args);}}),error);assert.equal(calls,1,'A transport failure must not begin the guide phase');
+  }
+  const controller=new AbortController();let calls=0;
+  await assert.rejects(chatTravel(body,{key:'fixture',advisorEnabled:true,signal:controller.signal,fetchImpl:()=>{calls++;controller.abort();return new Promise(()=>{});}}),{name:'AbortError'});
+  assert.equal(calls,1);assert.equal(JSON.stringify(currentPlan),before);
 });
 
 test('specific guide improvements keep all route days and only change the requested guide section',async()=>{
@@ -400,9 +674,9 @@ test('the explicit preference interview entry asks missing fields without rebuil
 
 test('the full guide entry updates content while a simultaneous explicit dietary fact stays saved',async()=>{
   for(const description of ['请沿用当前已确认的路线、日期和地点顺序，补充详细攻略：每站怎么玩、附近吃什么、交通与预约提醒、雨天备选，并给出资料来源。不要更换景点或重新安排路线。','我不吃辣，补充餐饮攻略']){
-    const currentPlan=savedAdvisorTrip(),stub=provider([{intent:'plan',reply:'按原路线补充。',...(description.includes('不吃辣')?{profilePatch:{diet:{restrictions:['辣']}}}:{})},matchingGuide]);
-    const result=await chatTravel({description,profile:currentPlan.profile,currentPlan,mode:'ai',textRevision:true},{...stub,advisorEnabled:true});
-    assert.equal(result.guideUpdateStatus,'updated');assert.deepEqual(result.stops,currentPlan.stops);assert.deepEqual(result.days,currentPlan.days);assert.equal(result.profile.fields.excludedPlaces.status,'missing');assert.equal(stub.calls.length,2);
+    const currentPlan=savedAdvisorTrip(),stub=provider([{intent:'plan',reply:'按原路线补充。',...(description.includes('不吃辣')?{profilePatch:{diet:{restrictions:['辣']}}}:{})},matchingGuide,toolMessage([toolCall('search_travel_web',{query:'广州 陈家祠 附近 餐厅 地址'})]),matchingDining]);
+    const result=await chatTravel({description,profile:currentPlan.profile,currentPlan,mode:'ai',textRevision:true},{...stub,advisorEnabled:true,toolImplementations:{searchTravelWeb:async()=>fixtureDiningResearch()}});
+    assert.equal(result.guideUpdateStatus,'updated');assert.deepEqual(result.stops,currentPlan.stops);assert.deepEqual(result.days,currentPlan.days);assert.equal(result.profile.fields.excludedPlaces.status,'missing');assert.equal(result.guide.diningStatus,'ready');assert.equal(stub.calls.length,4);
     if(description.includes('不吃辣'))assert.deepEqual(result.profile.fields.diet.value.restrictions,['辣']);else assert.deepEqual(result.profile.fields,currentPlan.profile.fields);
   }
 });

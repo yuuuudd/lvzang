@@ -36,6 +36,37 @@ test('daily hours do not become the budget and requests to rearrange a route ret
   }
 });
 
+test('completing three days with dining details cannot turn itinerary placement into a destination change',()=>{
+  const previous=basic('广州三天，每天四小时，必去粤博，不去广州塔，住在天河，从广州南站出发');
+  const text='请补齐这三天的具体行程，沿用我已回答的条件，每天4小时，不要把后两天空成自由日，同一地点不要分到不同天。也请给每天推荐顺路的具体吃饭店铺、完整分店名、地址和点菜建议，并补充每站玩法。';
+  const result=updateTravelProfile(previous,{text});
+  assert.equal(result.profile.fields.destination.value,'广州');assert.equal(result.profile.fields.dayCount.value,3);assert.equal(result.profile.fields.dailyHours.value,4);
+  for(const field of ['destination','requiredPlaces','excludedPlaces','stayArea','startArea'])assert.deepEqual(result.profile.fields[field],previous.fields[field],field);
+  assert.ok(!result.changes.includes('destination'));
+});
+
+test('arrival substrings in scheduling and map commands are not travel destination declarations',()=>{
+  const previous=basic('广州三天，每天四小时，必去粤博');
+  for(const text of ['同一地点不要分到不同天','把景点放到第二天','地图缩放到详细级别','把出发时间改到下午','重新规划完整','帮我安排更丰富的路线']){
+    const result=update(previous,text);assert.equal(result.fields.destination.value,'广州',text);assert.deepEqual(result.fields.requiredPlaces,previous.fields.requiredPlaces,text);
+  }
+});
+
+test('explicit destination actions still accept named cities beyond the local catalog',()=>{
+  const previous=basic();
+  for(const [text,city]of [['改到北京','北京'],['去杭州三天','杭州'],['计划上海三天','上海'],['到成都玩两天','成都'],['我想去乌鲁木齐三天','乌鲁木齐'],['请帮我改到景德镇','景德镇'],['目的地改为六盘水市','六盘水'],['把目的地换成呼伦贝尔','呼伦贝尔'],['带父母去泉州两天','泉州'],['帮我规划伊宁市三天','伊宁']]){
+    const result=update(previous,text);assert.equal(result.fields.destination.value,city,text);assert.equal(result.fields.destination.status,'confirmed',text);
+  }
+});
+
+test('an unsupported model destination cannot overwrite the city or clear its saved local conditions',()=>{
+  const previous=basic('广州三天，每天四小时，必去粤博，不去广州塔，住在天河，从广州南站出发');
+  for(const [text,patch]of [['同一地点不要分到不同天',{destination:'不同天'}],['喜欢文化和建筑',{destination:'北京'}],['同一地点不要分到不同天',{destination:{value:'不同天',status:'tentative'}}]]){
+    const result=updateTravelProfile(previous,{text,patch});
+    for(const field of ['destination','requiredPlaces','excludedPlaces','stayArea','startArea'])assert.deepEqual(result.profile.fields[field],previous.fields[field],`${text}: ${field}`);
+  }
+});
+
 test('half-day wording keeps the city exact and daily half-days preserve a multi-day trip',()=>{
   const single=update(emptyTravelProfile(),'帮我安排北京半天，每人全程预算300元',{destination:'北京'});
   assert.equal(single.fields.destination.value,'北京');

@@ -74,6 +74,16 @@ export function applyItineraryEdit({profile:sourceProfile,currentPlan,notes=[]},
  if(candidates.some(stop=>!byId(stop.id)))assumptions.push('手动加入的地图地点暂按停留30分钟估算，可继续通过对话调整。');
  const base={...(currentPlan??{}),kind:'plan',status:'ready',mode,city,title:currentPlan?.title||`${city}${input.dayCount}天定制行程`,input,analysis:currentPlan?.analysis||analyzeNotes(notes),days:undefined,stops:candidates,transport:'游览与转场时间为估算，出发前确认',warnings,assumptions,trace:[]};
  const plan=buildDailyPlan(base,profile);
+ // Only a day emptied by this explicit removal becomes free time. Existing gaps remain unfinished.
+ const previousFree=new Set(currentPlan?.planningCoverage?.freeDays||[]);
+ const removedDay=existing?.dayIndex??currentPlan?.days?.find(day=>day.stops.some(stop=>stop.id===existing?.id))?.dayIndex??1;
+ if(edit.action==='remove'&&!plan.days.find(day=>day.dayIndex===removedDay)?.stops.length)previousFree.add(removedDay);
+ const coveredDays=plan.days.filter(day=>day.stops.length).map(day=>day.dayIndex);
+ const freeDays=plan.days.filter(day=>!day.stops.length&&previousFree.has(day.dayIndex)).map(day=>day.dayIndex);
+ const missingDays=plan.days.filter(day=>!day.stops.length&&!previousFree.has(day.dayIndex)).map(day=>day.dayIndex);
+ plan.planningCoverage={status:missingDays.length?'partial':'complete',requestedDays:input.dayCount,coveredDays,missingDays,freeDays,supplementAttempts:currentPlan?.planningCoverage?.supplementAttempts===1?1:0};
+ plan.warnings=plan.warnings.filter(warning=>!/^现有地点资料有限，.*尚未安排地点；没有重复地点来填满行程。$/.test(warning));
+ if(missingDays.length)plan.warnings.push(`${missingDays.map(day=>`第${day}天`).join('、')}尚未安排具体地点，需要继续补充行程。`);
  if(currentPlan?.guide||edit.action==='add')plan.guide=reconcileGuide(currentPlan?.guide,plan);
  if(plan.stops.length!==candidates.length)throw new Error('这一天的时间或游玩强度无法容纳全部地点，请先增加每日时间、放宽强度，或移出一个地点后重试');
  return {...plan,kind:'plan',status:'ready',mode,trace:[],assistantReply:edit.action==='add'?`已将${target.name}加入第${dayIndex}天行程，其他旅行条件继续沿用。`:`已将${target.name}移出行程，并记录为避开地点；需要时可明确重新加入。`,changeSummary:edit.action==='add'?`加入${target.name}`:`移出${target.name}`};

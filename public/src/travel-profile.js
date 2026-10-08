@@ -187,15 +187,29 @@ function parsedDetails(text,previous){
   if(/(?:日期|哪天|出发日).{0,8}(?:未定|没定|不确定|没想好)/.test(text))result.travelDates={start:null,end:null};
   return result;
 }
-function parsedText(text,previous){
-  const result=parsedDetails(text,previous),pending=new Set(previous.followUps.map(item=>item.field));
+function parsedDestination(text,pending){
   const cityPattern='广州|苏州|杭州|北京|上海|成都|重庆|深圳|西安|南京|青岛|厦门|武汉|长沙|珠海|云南|日本|巴黎';
-  const explicitCity=text.match(new RegExp(`(?:换成|改成|改为|目的地(?:是|为)?|(?<!不)(?<!不想)(?<!不要)(?<!必)(?<!要)去|到)\\s*(${cityPattern})(?:市)?(?=[\\s，。；,;一二两三四五六七八九十\\d]|半天|旅游|旅行|玩|游|$)`));
-  const beginningCity=text.match(new RegExp(`^(?:帮我(?:安排|规划)?|安排|规划|计划|想去|去)?\\s*(${cityPattern})(?:市)?(?=[\\s，。；,;一二两三四五六七八九十\\d]|半天|旅游|旅行|玩|游|$)`));
-  const directional=text.match(/(?:换成|目的地(?:是|为)?|(?<!不)(?<!不想)(?<!不要)(?<!必)(?<!要)去|到|安排|规划)\s*([\p{Script=Han}A-Za-z·]{2,20}?)(?:市)?(?=\s*(?:[一二两三四五六七八九十\d]+(?:天|日)|半天|[，。；,;\s]|旅游|旅行|玩|游|$))/u);
-  if(explicitCity||beginningCity)result.destination=(explicitCity??beginningCity)[1];
-  else if(directional){const destination=directional[1].replace(/^(?:帮我|我们|我想|计划|准备)/,'');if(destination.length>=2&&!/^(?:方案|行程|路线|地点|计划|旅行|旅游|哪里|什么|博物馆|预算)$/.test(destination)&&!/^(?:[零一二两三四五六七八九十\d]+(?:天|日)|半天)(?:路线|行程|计划|方案|旅行|旅游)?$/.test(destination)&&!places.some(place=>[place.name,...place.aliases].includes(destination))&&!/必去|排除|不去/.test(text.slice(0,directional.index)))result.destination=destination;}
-  else if(pending.has('destination')&&/^[\p{Script=Han}A-Za-z·]{2,20}(?:市)?$/u.test(text)&&!/^(?:不知道|你推荐|随便|先安排|先给方案|你先安排)$/.test(text))result.destination=text;
+  const intro='(?:(?:请|麻烦)(?:你)?|帮我|我们|我|这次|现在|接下来|还是|那就|打算|准备|计划|希望|决定|想|要|重新|再|先|一起|\\s)*';
+  const target='([\\p{Script=Han}A-Za-z·]{2,20}?)(?:市)?(?=\\s*(?:[一二两三四五六七八九十\\d]+(?:天|日)|半天|[，。；,;\\s]|旅游|旅行|玩|游|$))';
+  const named=new RegExp(`^${intro}(?:把)?(?:(?:旅行|旅游)的?)?目的地\\s*(?:改为|改成|改到|换成|换到|选为|选|是|为|[:：])?\\s*${target}`,'u');
+  // Anchor the complete action to its clause. A suffix 到 in 分到/放到/缩放到
+  // describes another operation, not a traveler choosing a new destination.
+  const directional=new RegExp(`^${intro}(?:(?:带|陪|和|跟|与)[^去到，。；,;\\n]{1,20})?(前往|改去|换到|改到|换成|改成|改为|去|到|安排|规划)\\s*${target}`,'u');
+  const known=new RegExp(`^(${cityPattern})(?:市)?(?=[\\s，。；,;一二两三四五六七八九十\\d]|半天|旅游|旅行|玩|游|$)`);
+  const valid=destination=>destination.length>=2&&!conditionClause(destination)&&!/^(?:方案|行程|路线|地点|计划|旅行|旅游|哪里|什么|博物馆|预算)$/.test(destination)&&!/^(?:[零一二两三四五六七八九十\d]+(?:天|日)|半天)(?:路线|行程|计划|方案|旅行|旅游)?$/.test(destination)&&!places.some(place=>[place.name,...place.aliases].includes(destination));
+  for(const clause of text.split(/[，。；,;\n]/).map(value=>value.trim())){
+    const explicit=named.exec(clause),motion=directional.exec(clause),bare=known.exec(clause.replace(/^(?:帮我(?:安排|规划)?|安排|规划|计划|想去|去)\s*/,''));
+    const destination=explicit?.[1]??motion?.[2]??bare?.[1];if(!destination||!valid(destination))continue;
+    // Planning commands also take objects such as “完整路线”; an unfamiliar
+    // city after 安排/规划 needs an accompanying travel duration/activity.
+    if(!explicit&&motion&&/^(?:安排|规划)$/.test(motion[1])&&!known.test(destination)&&!/^\s*(?:[一二两三四五六七八九十\d]+(?:天|日)|半天|旅游|旅行|玩|游)/.test(clause.slice(motion[0].length)))continue;
+    return destination;
+  }
+  if(pending.has('destination')&&/^[\p{Script=Han}A-Za-z·]{2,20}(?:市)?$/u.test(text)&&!/^(?:不知道|你推荐|随便|先安排|先给方案|你先安排)$/.test(text)&&valid(text))return text;
+}
+function parsedText(text,previous){
+  const result=parsedDetails(text,previous),pending=new Set(previous.followUps.map(item=>item.field)),destination=parsedDestination(text,pending);
+  if(destination!==undefined)result.destination=destination;
   const durationQuestion=/[？?]|吗|多久|多长/.test(text)&&!/(?:安排|规划|制定|改为|改成|改到|调整|只有|总共|我们.*(?:玩|旅行)|旅行.*天)/.test(text);
   if(!durationQuestion&&!/第\s*[一二两三四五六七八九十\d]+\s*天/.test(text)){
     const durationText=text.replace(/\d{4}[-/年]\d{1,2}[-/月]\d{1,2}日?/g,'');
@@ -303,17 +317,22 @@ export function updateTravelProfile(previous,{text='',patch={},destination,hours
       if(proposal.length&&!grounded.length)return undefined;
       proposal=grounded;
     }
+    // Only the travel-action parser can confirm a city from this turn. A model
+    // copying words from another instruction does not establish a city change.
+    if(field==='destination')return {value:proposal,status:'tentative'};
     // A patch is an extraction proposal. Values with no visible support are assumptions.
-    const support={destination:typeof proposal==='string'&&text.includes(proposal)&&!places.some(place=>[place.name,...place.aliases].includes(proposal))&&!new RegExp(`(?:不去|不想去|不要去|避开|必去)\\s*${proposal.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}`).test(text),pace:/走|轻松|慢游|紧凑|休闲|徒步|累/.test(text),interests:/喜欢|兴趣|偏好|爱看|想看|想体验/.test(text),requiredPlaces:/必去|必须|一定|保留|想去|加上|加入/.test(text),excludedPlaces:/不去|不想去|不要|避开|去掉|删除|取消/.test(text)};
+    const support={pace:/走|轻松|慢游|紧凑|休闲|徒步|累/.test(text),interests:/喜欢|兴趣|偏好|爱看|想看|想体验/.test(text),requiredPlaces:/必去|必须|一定|保留|想去|加上|加入/.test(text),excludedPlaces:/不去|不想去|不要|避开|去掉|删除|取消/.test(text)};
     return {value:proposal,status:support[field]?proposalStatus:'tentative'};
   };
-  // Destination clears the old city's named constraints before the new patch is applied.
-  const proposedDestination=explicit.destination??(object(patch.destination)&&own(patch.destination,'value')?patch.destination.value:patch.destination);
-  if(proposedDestination!==undefined&&proposedDestination!==null){
+  // Clear local constraints only for a destination update that will be applied.
+  const destinationPatch=!own(explicit,'destination')&&own(patch,'destination')?safeProposal('destination',patch.destination):undefined;
+  const proposedDestination=explicit.destination??(object(destinationPatch)&&own(destinationPatch,'value')?destinationPatch.value:destinationPatch);
+  const destinationAccepted=own(explicit,'destination')||!(destinationPatch?.status==='tentative'&&original.fields.destination.status==='confirmed');
+  if(destinationAccepted&&proposedDestination!==undefined&&proposedDestination!==null){
     const normalized=normalizeValue('destination',proposedDestination);
     if(original.fields.destination.value&&normalized!==original.fields.destination.value){profile.fields.requiredPlaces={value:null,status:'missing'};profile.fields.excludedPlaces={value:null,status:'missing'};profile.fields.stayArea={value:null,status:'missing'};profile.fields.startArea={value:null,status:'missing'};}
   }
-  for(const [field,value] of Object.entries(patch))if(!own(explicit,field)){const proposal=safeProposal(field,value);if(proposal!==undefined)apply(field,proposal);}
+  for(const [field,value] of Object.entries(patch))if(!own(explicit,field)){const proposal=field==='destination'?destinationPatch:safeProposal(field,value);if(proposal!==undefined)apply(field,proposal);}
   for(const [field,value] of Object.entries(explicit))apply(field,value);
   // UI defaults are assumptions, never evidence that the traveler chose Guangzhou or four hours.
   if(destination!==undefined&&profile.fields.destination.status==='missing'&&!own(patch,'destination')&&!own(explicit,'destination'))apply('destination',destination,'tentative');
