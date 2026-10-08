@@ -65,33 +65,99 @@ const guangzhouLandmarks = [
   landmark('gz-cantonese-opera-museum', '粤剧艺术博物馆', 'culture', ['广州粤剧艺术博物馆'], oldCitySource),
 ].map(place => ({...place, signature: signatureIds.has(place.id)}));
 
+// Selected landmarks with verified names and city membership, not an exhaustive
+// nationwide directory. `source` documents identity only; live POI coordinates and
+// visit conditions must still come from the provider/research flow.
+const curated = (id, city, name, category, aliases, source, region) => ({
+  id, city, name, category, aliases, source, modelKey: id, signature: true,
+  ...(region ? {region} : {}),
+});
+const suzhouLandmarkSource = 'https://www.suzhou.gov.cn/gzdmksz/hdjs/202312/52f0a745f9694a8aa053474b5eba1baa.shtml';
+const tibetLandmarkSource = 'https://wlt.xizang.gov.cn/xwzx_69/tzgg/202111/t20211111_269582.html';
+const detailedOnlyIds = new Set(['hz-baochu-pagoda', 'sz-north-temple-pagoda', 'sh-customs-house', 'cd-wangjiang-tower', 'xz-tashilhunpo']);
+const otherDestinationLandmarks = [
+  curated('hz-leifeng-tower', '杭州', '雷峰塔', 'landmark', ['杭州雷峰塔', '雷峰夕照', '雷峰塔景区雷峰塔'],
+    'https://wgly.hangzhou.gov.cn/art/2022/12/1/art_1229696389_58943150.html'),
+  curated('hz-baochu-pagoda', '杭州', '保俶塔', 'landmark', ['杭州保俶塔', '宝石山保俶塔', '杭州西湖风景名胜区-保俶塔'],
+    'https://www.hzzx.gov.cn/hzzx/content/2010-10/26/content_5138064.htm'),
+  curated('hz-three-pools', '杭州', '三潭印月', 'park', ['西湖三潭印月', '小瀛洲', '小瀛洲(三潭印月)', '杭州西湖风景名胜区-三潭印月'],
+    'https://westlake.hangzhou.gov.cn/art/2022/4/8/art_1639433_59036844.html'),
+  curated('hz-lingyin-temple', '杭州', '灵隐寺', 'culture', ['杭州灵隐寺', '云林禅寺'],
+    'https://www.lingyinsi.org/'),
+  curated('sz-tiger-hill', '苏州', '虎丘塔', 'landmark', ['云岩寺塔', '虎丘云岩寺塔', '虎丘山风景名胜区-虎丘塔'],
+    'https://www.suzhou.gov.cn/szwgjyhsj/yhsjjbgk/202110/560fc6c80c7746b98704ecd6fc24e5f0.shtml'),
+  curated('sz-museum', '苏州', '苏州博物馆(本馆)', 'culture', ['苏州博物馆', '苏博', '苏州博物馆本馆'],
+    'https://www.suzhou.gov.cn/szsrmzf/mszx/202609/2d1a50ec4496485d9f5c332de585dfdc.shtml'),
+  curated('sz-north-temple-pagoda', '苏州', '北寺塔', 'landmark', ['苏州北寺塔', '报恩寺塔'],
+    'https://ylj.suzhou.gov.cn/szsylj/ylml/201903/906f0b5d153f46aba15c1bbe698dd045.shtml'),
+  curated('sz-gate-east', '苏州', '东方之门', 'landmark', ['苏州东方之门', '东方之门大厦'], suzhouLandmarkSource),
+  curated('bj-temple-heaven', '北京', '天坛祈年殿', 'culture', ['祈年殿', '天坛公园-祈年殿', '天坛-祈年殿'],
+    'https://gygl.beijing.gov.cn/whgy/whgy_wsgc/201912/t20191206_885633.html'),
+  curated('bj-palace-museum', '北京', '故宫博物院', 'culture', ['故宫', '北京故宫', '北京故宫博物院'],
+    'https://www.dpm.org.cn/singles_detail/252829.html'),
+  curated('bj-birds-nest', '北京', '国家体育场(鸟巢)', 'landmark', ['鸟巢', '国家体育场', '北京鸟巢', '国家体育场·鸟巢'],
+    'https://www.beijing.gov.cn/renwen/rwzyd/qxdw/shaozhcqychy/gjtyc/202309/t20230921_3263702.html'),
+  curated('sh-oriental-pearl', '上海', '东方明珠广播电视塔', 'landmark', ['东方明珠', '东方明珠塔', '上海东方明珠'],
+    'https://english.shanghai.gov.cn/en-ScenicSpots/20231205/19a5f5184eca45728fd57a4d4c8efc61.html'),
+  curated('sh-shanghai-tower', '上海', '上海中心大厦', 'landmark', ['上海中心'],
+    'https://www.shanghai.gov.cn/nw4411/20260210/757750e6b47b4f1fb9b728b87615a118.html'),
+  curated('sh-customs-house', '上海', '上海海关大楼', 'landmark', ['海关大楼(中山东一路)', '外滩海关大楼', '江海关大楼'],
+    'https://www.shanghai.gov.cn/nw4411/20250929/222f09ea1ab4462592c433197d1d5330.html'),
+  curated('sh-china-art-museum', '上海', '中华艺术宫', 'culture', ['上海美术馆', '中华艺术宫(上海美术馆)', '上海美术馆(中华艺术宫)'],
+    'https://whlyj.sh.gov.cn/yshd/20260915/26c3d72ecd5f48fe85cd39f021f71f4f.html'),
+  // The provider's parenthetical name is only an identity alias, not live opening-status evidence.
+  curated('cd-panda-tower', '成都', '天府熊猫塔', 'landmark', ['成都天府熊猫塔', '四川广播电视塔', '锦绣天府塔', '339天府熊猫塔', '天府熊猫塔(暂停开放)'],
+    'https://www.mct.gov.cn/wlbphone/wlbydd/xxfb/qglb/sc/202301/t20230130_938815.html'),
+  curated('cd-anshun-bridge', '成都', '安顺廊桥', 'landmark', ['成都安顺廊桥', '安顺桥'],
+    'https://www.cdmedi.com/contents/36/471.html'),
+  curated('cd-wangjiang-tower', '成都', '望江楼(崇丽阁)', 'landmark', ['望江楼', '崇丽阁', '望江楼崇丽阁', '望江楼公园-崇丽阁'],
+    'https://nz.china-embassy.gov.cn/chn/ztbd/xbdkf/xbgk/200309/t20030922_927212.htm'),
+  curated('cd-wenshu-monastery', '成都', '文殊院', 'culture', ['成都文殊院'],
+    'https://www.sc.gov.cn/10462/zfwjts/2023/4/10/215704f5030646e085164a70244f6153/files/b49f773f9f2b44799a0c6862eabf53c2.pdf'),
+  curated('xz-potala-palace', '拉萨', '布达拉宫', 'culture', ['拉萨布达拉宫'], tibetLandmarkSource, '西藏'),
+  curated('xz-jokhang-temple', '拉萨', '大昭寺', 'culture', ['拉萨大昭寺'], tibetLandmarkSource, '西藏'),
+  curated('xz-norbulingka', '拉萨', '罗布林卡', 'park', ['拉萨罗布林卡'], tibetLandmarkSource, '西藏'),
+  curated('xz-tashilhunpo', '日喀则', '扎什伦布寺', 'culture', ['扎什伦布寺景区', '日喀则扎什伦布寺', '札什伦布寺'], tibetLandmarkSource, '西藏'),
+].map(place => ({...place, signature: !detailedOnlyIds.has(place.id)}));
+const explorationLandmarks = [...guangzhouLandmarks, ...otherDestinationLandmarks];
+
 const nameKey = value => typeof value === 'string' ? value.normalize('NFKC').replace(/\s+/g, '').toLowerCase() : '';
-const cityKey = value => nameKey(value).replace(/市$/, '');
+const cityKey = value => {
+  const key = nameKey(value).replace(/市$/, '');
+  return key === '西藏自治区' ? '西藏' : key;
+};
+const inDestination = (place, city) => {
+  const key = cityKey(city);
+  return Boolean(key) && (cityKey(place.city) === key || (place.region && cityKey(place.region) === key));
+};
 const identities = place => [place?.id, place?.name, place?.shortName, ...(Array.isArray(place?.aliases) ? place.aliases : [])].map(nameKey).filter(Boolean);
 const cloneLandmark = place => place ? {...place, aliases: [...place.aliases], kind: 'exploration'} : null;
 
 /** Trusted lookup across the complete curated pool, independent of map filters. */
 export function getExplorationLandmark(city, idOrName) {
-  if (cityKey(city) !== '广州' || !nameKey(idOrName)) return null;
+  if (!nameKey(idOrName)) return null;
   const key = nameKey(idOrName);
-  return cloneLandmark(guangzhouLandmarks.find(place => identities(place).includes(key)));
+  return cloneLandmark(explorationLandmarks.find(place => inDestination(place, city) && identities(place).includes(key)));
 }
 
 export function getLandmarkById(id) {
-  return cloneLandmark(guangzhouLandmarks.find(place => place.id === id));
+  return cloneLandmark(explorationLandmarks.find(place => place.id === id));
 }
 
 /** Return map-only landmarks outside the accepted trip and explicit exclusions. */
 export function getExplorationLandmarks(city, {acceptedStops = [], excludedPlaces = [], excludedIds = [], density = 'signature', category = 'all'} = {}) {
-  if (cityKey(city) !== '广州' || density === 'itinerary') return [];
+  if (density === 'itinerary') return [];
   const selectedCategory = LANDMARK_CATEGORIES.some(option => option.value === category) ? category : 'all';
-  const acceptedNames = new Set(acceptedStops
-    .filter(stop => !stop.city || cityKey(stop.city) === '广州')
-    .flatMap(identities));
+  const accepted = acceptedStops.map(stop => ({city: stop.city, names: new Set(identities(stop))}));
   const rejectedIds = new Set(excludedIds);
   const rejectedNames = new Set(excludedPlaces.map(nameKey).filter(Boolean));
-  return guangzhouLandmarks
-    .filter(place => (density === 'detailed' || place.signature) && (selectedCategory === 'all' || place.category === selectedCategory))
-    .filter(place => !rejectedIds.has(place.id) && !identities(place).some(key => acceptedNames.has(key) || rejectedNames.has(key)))
+  return explorationLandmarks
+    .filter(place => inDestination(place, city))
+    // A province keeps its distant cities in detailed mode. Choosing that city
+    // directly makes its own verified landmark available in signature mode.
+    .filter(place => (density === 'detailed' || place.signature || (place.region && cityKey(place.city) === cityKey(city)))
+      && (selectedCategory === 'all' || place.category === selectedCategory))
+    .filter(place => !rejectedIds.has(place.id) && !identities(place).some(key => rejectedNames.has(key)
+      || accepted.some(stop => (!stop.city || inDestination(place, stop.city)) && stop.names.has(key))))
     .map(cloneLandmark);
 }

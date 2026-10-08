@@ -1,5 +1,6 @@
 import {makeSouvenir} from './souvenir-mesh.js';
 import {getExplorationLandmark} from './travel-map-exploration.js';
+import {buildLandmarkGeometry,hasLandmarkGeometry} from './travel-landmark-geometry.js';
 
 // Miniature architecture only. The map controller supplies verified POI positions.
 // A static orthographic triangle renderer avoids a WebGL context for every marker.
@@ -134,19 +135,23 @@ function commercial(){
 }
 
 function genericPlace(){const shape=builder();shape.box(0,0,0,31,3,26,palette.stone);shape.rod([0,3,0],[0,22,0],2,palette.green,10);shape.pebble(0,0,18,15,15,palette.green);return shape.triangles;}
-function kindFor(stop){
+export function resolveLandmarkKind(stop={}){
   if(['gz-museum','gz-tower','gz-square','gz-opera','gz-library','gz-ifc','gz-ctf','gz-youth-palace'].includes(stop.id))return stop.id;
   if(stop.city==='广州'){const name=String(stop.name||'');if(/广东省?博物馆|粤博/.test(name))return 'gz-museum';if(/广州塔|小蛮腰/.test(name))return 'gz-tower';if(/花城广场/.test(name))return 'gz-square';if(/广州大剧院/.test(name))return 'gz-opera';if(/广州图书馆/.test(name))return 'gz-library';if(/广州国际金融中心|广州西塔/.test(name))return 'gz-ifc';if(/广州周大福金融中心|广州东塔/.test(name))return 'gz-ctf';if(/第?二少年宫/.test(name))return 'gz-youth-palace';}
-  const curated=getExplorationLandmark(stop.city,stop.id)||getExplorationLandmark(stop.city,stop.name);
+  // Generated itinerary IDs and provider search IDs are not catalog identities.
+  // Only a city-scoped trusted name/alias match may select a dedicated model.
+  const curated=[stop.id,stop.name,...(Array.isArray(stop.aliases)?stop.aliases:[])].map(value=>getExplorationLandmark(stop.city,value)).find(Boolean);
+  if(curated?.modelKey&&hasLandmarkGeometry(curated.modelKey))return curated.modelKey;
   if(curated?.category==='shopping')return 'commercial';
-  return stop.id||'place';
+  return hasLandmarkGeometry(stop.id)?'place':stop.id||'place';
 }
-function geometry(stop){
-  const key=kindFor(stop);if(geometryCache.has(key))return {kind:key,triangles:geometryCache.get(key)};
+export function landmarkGeometry(stop){
+  const key=resolveLandmarkKind(stop);if(geometryCache.has(key))return {kind:key,triangles:geometryCache.get(key)};
   let triangles;
   if(key==='gz-museum')triangles=museum();else if(key==='gz-tower')triangles=tower();else if(key==='gz-square')triangles=square();else if(key==='gz-opera')triangles=opera();
   else if(key==='gz-library')triangles=library();else if(key==='gz-ifc')triangles=ifc();else if(key==='gz-ctf')triangles=ctf();else if(key==='gz-youth-palace')triangles=youthPalace();
   else if(key==='commercial')triangles=commercial();
+  else if(hasLandmarkGeometry(key))triangles=buildLandmarkGeometry(key);
   else try{const model=makeSouvenir(key==='sz-shantang'?'sz-pingjiang':key);triangles=Array.from({length:model.mesh.length/9},(_,index)=>({points:Array.from({length:3},(_,vertex)=>Array.from(model.mesh.slice(index*9+vertex*3,index*9+vertex*3+3))),color:Array.from(model.colors.slice(index*9,index*9+3))}));}catch{if(!geometryCache.has('place'))geometryCache.set('place',genericPlace());return {kind:'place',triangles:geometryCache.get('place')};}
   geometryCache.set(key,triangles);return {kind:key,triangles};
 }
@@ -172,7 +177,7 @@ export function createLandmarkMarker(stop,{index=0,dayIndex=null,isToday=true,is
   const label=document.createElement('span');label.className='landmark-label';const title=document.createElement('span');title.className='landmark-name';title.textContent=displayName;const context=document.createElement('span');context.className='landmark-day';context.textContent=exploration?'探索 · 未入行程':isExample?'示例 · 未加入':'已在行程 · '+(day?`第${day}天`:`第${number}站`);label.append(title,context);
   const endpoint=document.createElement('span');endpoint.className='landmark-endpoint';endpoint.hidden=true;button.append(model,label,endpoint);
   button.dataset.landmarkLabel=exploration?`${name}，探索地标，未加入行程`:isExample?`${name}，示例地点，未加入行程`:`${name}，已在行程，${day?`第${day}天，`:''}第${number}站，${isToday?'当天地点':'其他日期地点'}`;
-  try{const result=geometry(stop);button.dataset.landmarkKind=result.kind;if(!render(canvas,result.triangles))button.classList.add('has-no-model');}catch{button.classList.add('has-no-model');}
+  try{const result=landmarkGeometry(stop);button.dataset.landmarkKind=result.kind;if(!render(canvas,result.triangles))button.classList.add('has-no-model');}catch{button.classList.add('has-no-model');}
   setLandmarkState(button);return button;
 }
 

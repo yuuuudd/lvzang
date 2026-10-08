@@ -15,6 +15,8 @@ const element=(tag,text,className)=>{const node=document.createElement(tag);if(t
 const button=(text,action)=>{const node=element('button',text,'text-button');node.type='button';node.onclick=action;return node;};
 const lookupKey=(city,stop)=>JSON.stringify([city,stop.name,stop.aliases||[]]);
 const routeKey=(mode,from,to)=>JSON.stringify([mode,from.position,to.position]);
+const catalogLandmark=(city,stop)=>[stop.id,stop.name,...(Array.isArray(stop.aliases)?stop.aliases:[])].map(value=>getExplorationLandmark(city,value)).find(Boolean);
+const sameLandmark=(city,a,b)=>a.id===b.id||a.name===b.name||Boolean(catalogLandmark(city,a)?.id&&catalogLandmark(city,a).id===catalogLandmark(city,b)?.id);
 
 async function configuration(){
   if(!configPromise)configPromise=fetch('/api/map/config',{cache:'no-store',signal:AbortSignal.timeout(QUERY_TIMEOUT)}).then(async response=>{if(!response.ok)throw new Error('暂时无法读取地图配置');return response.json();}).catch(error=>{configPromise=null;throw error;});
@@ -276,7 +278,7 @@ export function createTravelMap() {
     const merged=[...plan.stops,...(options.landmarkStops||plan.stops)].filter(stop=>currentIds.has(stop.id)||currentDestination?.level==='province'||mapDestinationKey(stop.city||plan.city)===mapDestinationKey(plan.city));
     acceptedStops=[...new Map(merged.filter(stop=>stop.kind!=='exploration').map(stop=>[stop.id,stop])).values()];
     const discoveries=showExploration?getExplorationLandmarks(plan.city,{acceptedStops,excludedPlaces,excludedIds,density,category}):[];
-    const searched=[...searchedPlaces.values()].map(item=>item.stop).filter(stop=>!acceptedStops.some(accepted=>accepted.id===stop.id||accepted.name===stop.name));
+    const searched=[...searchedPlaces.values()].map(item=>item.stop).filter(stop=>!acceptedStops.some(accepted=>sameLandmark(plan.city,accepted,stop)));
     landmarkStops=[...new Map([...acceptedStops,...discoveries,...searched].map(stop=>[stop.id,stop])).values()];
   }
   function showCurrentLocation() {
@@ -352,10 +354,12 @@ export function createTravelMap() {
   }
   async function locate(stop, city, token) {
     const region=currentDestination;
+    const known=catalogLandmark(city,stop);
+    const aliases=[...(stop.aliases||[]),...(known?.aliases||[]),...(known?[known.name]:[])];
     const key = lookupKey(city, stop);
     if (places.has(key)) return confirm(stop, places.get(key), token);
-    if (!placeRequests.has(key)) placeRequests.set(key, search(stop.name, city).then(result => {
-      const selection = selectAmapPlace(result.poiList?.pois || [], {name: stop.name, city, aliases: stop.aliases || [],region});
+    if (!placeRequests.has(key)) placeRequests.set(key, search(known?.name||stop.name, city).then(result => {
+      const selection = selectAmapPlace(result.poiList?.pois || [], {name: stop.name, city, aliases,region});
       if (selection.status === 'matched') places.set(key, selection.place);
       return selection;
     }).finally(() => placeRequests.delete(key)));
@@ -497,7 +501,7 @@ export function createTravelMap() {
         const choice=button(`${place.name} · ${place.address||place.city}`,async()=>{
           if(version!==searchToken||currentPlan.city!==city)return;
           const known=getExplorationLandmark(city,place.name);
-          const accepted=acceptedStops.find(stop=>stop.name===place.name||known?.id===stop.id);
+          const accepted=acceptedStops.find(stop=>stop.name===place.name||known&&sameLandmark(city,stop,known));
           const providerId=String(place.id||'').replace(/[^a-zA-Z0-9_-]/g,'').slice(0,100);
           if(!accepted&&!known&&!providerId){searchStatus.textContent='该结果缺少可确认的地点编号，请换一个候选。';return;}
           const stop=accepted||known||{id:'amap-'+providerId,name:place.name,city,kind:'exploration',aliases:[],source:''};

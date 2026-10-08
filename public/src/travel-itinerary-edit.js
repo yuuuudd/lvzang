@@ -1,12 +1,13 @@
 import {byId} from './travel-catalog.js';
 import * as exploration from './travel-map-exploration.js';
+import {mapDestinationKey} from './travel-map-data.js';
 import {normalizeTravelProfile,travelProfileInput,travelFollowUps} from './travel-profile.js';
 import {buildDailyPlan} from './travel-schedule.js';
 import {analyzeNotes} from './travel-domain.js';
 
 const object=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
 const key=value=>String(value??'').normalize('NFKC').replace(/\s/g,'').toLowerCase();
-const cityKey=value=>key(value).replace(/市$/,'');
+const cityKey=mapDestinationKey;
 const mapPlace=(city,id)=>exploration.getExplorationLandmark?.(city,id)??exploration.getExplorationLandmarks(city).find(place=>place.id===id)??null;
 const searchId=id=>typeof id==='string'&&/^amap-[a-zA-Z0-9_-]{6,80}$/.test(id);
 const placeNames=place=>[place?.id,place?.name,place?.shortName,...(place?.aliases??[])].filter(Boolean).map(key);
@@ -20,8 +21,9 @@ export function normalizeItineraryEdit(value){
  return {...value,stopName:value.stopName.trim()};
 }
 function manualStop(edit,city,dayIndex){
- const known=byId(edit.stopId)||mapPlace(city,edit.stopId);
- if(known&&cityKey(known.city)!==cityKey(city))throw new Error('这个地点不属于当前旅行城市，请先调整目的地');
+ const scopedPlace=mapPlace(city,edit.stopId),known=byId(edit.stopId)||scopedPlace;
+ // A regional catalog lookup already checks membership, e.g. Lhasa belongs to Tibet.
+ if(known&&!scopedPlace&&cityKey(known.city)!==cityKey(city))throw new Error('这个地点不属于当前旅行城市，请先调整目的地');
  if(known&&!matches(known,edit.stopName))throw new Error('地点名称与所选地标不一致，请重新选择');
  if(!known&&!searchId(edit.stopId))throw new Error('这个地点尚未确认，请从地图重新选择');
  if(byId(edit.stopId))return {...known,dayIndex,transit:0,evidence:[],reason:'用户明确加入行程'};

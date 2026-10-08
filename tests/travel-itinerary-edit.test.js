@@ -11,6 +11,28 @@ const base={...planFromCatalog(normalizeRequest({description:'广州一天'}),un
 const plan=buildDailyPlan(base,profile),forbidModel={fetchImpl:async()=>{throw new Error('explicit membership must not call the model');}};
 const edit=(itineraryEdit,current=plan,prior=profile)=>chatTravel({description:'修改行程地点。',mode:'ai',profile:prior,currentPlan:current,previous:current?.input,itineraryEdit},forbidModel);
 
+test('regional landmarks can be explicitly added and removed, but never added to another destination',async()=>{
+ const tibet=updateTravelProfile(emptyTravelProfile(),{text:'去西藏，玩两天，每天6小时',patch:{destination:'西藏',dayCount:2,dailyHours:6}}).profile;
+ const regional=buildDailyPlan({...base,city:'西藏',title:'西藏旅行',stops:[]},tibet);
+ const added=await edit({action:'add',stopId:'xz-potala-palace',stopName:'布达拉宫',dayIndex:2},regional,tibet);
+ assert.equal(added.city,'西藏');assert.equal(added.days[1].stops[0].name,'布达拉宫');
+ assert.equal(added.days[1].stops[0].coords,null,'A curated landmark never supplies invented provider coordinates');
+ const records=new Map(),storage={getItem:name=>records.get(name)??null,setItem:(name,value)=>records.set(name,value)};
+ writeState(storage,{...initialState(),profile:added.profile,plan:added});assert.ok(readState(storage).plan.stops.some(stop=>stop.id==='xz-potala-palace'));
+ const removed=await edit({action:'remove',stopId:'xz-potala-palace',stopName:'布达拉宫'},added,added.profile);
+ assert.equal(removed.stops.length,0);assert.ok(removed.profile.fields.excludedPlaces.value.includes('布达拉宫'));
+ await assert.rejects(edit({action:'add',stopId:'xz-potala-palace',stopName:'故宫'},regional,tibet),/名称/);
+ const hangzhou=updateTravelProfile(tibet,{text:'改去杭州',patch:{destination:'杭州'}}).profile;
+ const other=buildDailyPlan({...regional,city:'杭州',stops:[]},hangzhou);
+ await assert.rejects(edit({action:'add',stopId:'xz-potala-palace',stopName:'布达拉宫'},other,hangzhou),/尚未确认|不属于/);
+ const lhasa=updateTravelProfile(tibet,{text:'改去拉萨',patch:{destination:'拉萨'}}).profile;
+ const lhasaPlan=buildDailyPlan({...regional,city:'拉萨',stops:[]},lhasa);
+ await assert.rejects(edit({action:'add',stopId:'xz-tashilhunpo',stopName:'扎什伦布寺'},lhasaPlan,lhasa),/尚未确认|不属于/);
+ const fullName=updateTravelProfile(tibet,{text:'去西藏自治区',patch:{destination:'西藏自治区'}}).profile;
+ const aliasAdded=await edit({action:'add',stopId:'xz-potala-palace',stopName:'布达拉宫'},regional,fullName);
+ assert.equal(aliasAdded.stops[0].name,'布达拉宫');
+});
+
 test('explicit map add and remove preserve unrelated conditions and original plan',async()=>{
  const snapshot=JSON.stringify({profile,plan});
  const added=await edit({action:'add',stopId:'gz-library',stopName:'广州图书馆',dayIndex:1});
