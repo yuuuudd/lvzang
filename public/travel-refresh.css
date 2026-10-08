@@ -1,4 +1,7 @@
 #app-main>#route-refresh-slot{position:sticky;top:0;z-index:40;flex:none;padding:12px 24px;background:var(--surface);border-bottom:1px solid var(--line);isolation:isolate}
+/* Header menus must remain above the sticky destination toolbar. */
+.site-header .identity-menu[open]{z-index:60}
+.site-header .identity-panel{max-height:calc(100dvh - 80px);overflow-y:auto;overscroll-behavior:contain}
 .route-refresh-form{display:grid;grid-template-columns:auto minmax(240px,480px) minmax(0,1fr);align-items:center;gap:4px 16px;margin:0;cursor:default}
 .route-refresh-form>label{grid-row:1;font-size:14px;font-weight:600}
 .route-refresh-row{display:flex;gap:8px;align-items:stretch;min-width:0}
