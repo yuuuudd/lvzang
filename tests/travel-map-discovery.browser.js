@@ -57,7 +57,7 @@ try{
   await page.getByLabel('地标分类',{exact:true}).selectOption('shopping');
   await page.waitForFunction(()=>!!document.querySelector('.map-marker[data-stop="gz-grandview"]')&&!document.querySelector('.map-marker[data-stop="gz-youth-palace"]'));
   assert.equal(await page.locator('.map-marker[data-stop="gz-museum"]').count(),1,'Category filters never hide accepted itinerary stops');
-  await page.getByRole('searchbox',{name:'搜索当前城市的地点',exact:true}).fill('测试新景点');
+  await page.getByRole('searchbox',{name:'搜索广州的地点',exact:true}).fill('测试新景点');
   await page.getByRole('button',{name:'搜索地点',exact:true}).click();
   await page.getByRole('button',{name:/测试新景点.*测试地址/}).click();
   await page.waitForFunction(()=>document.getElementById('map-place-name').textContent==='测试新景点');

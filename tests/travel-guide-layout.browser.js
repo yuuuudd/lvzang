@@ -50,7 +50,8 @@ try{
     assert.ok(g.routeInside&&g.sourcesBelow,`${width}px: itinerary and sources stay inside their guide pane`);
     assert.ok(g.font>=13.9&&g.font<=18.1,`${width}px: type follows available width, not old 22px preference`);
     assert.ok(await page.locator('#route-refresh').isVisible(),`${width}px: refresh remains available`);
-    const refresh=await page.locator('#route-refresh').boundingBox();assert.ok(refresh.x>=g.guide.left&&refresh.x+refresh.width<=g.guide.right,`${width}px: the refresh button is not clipped outside the guide`);
+    const refresh=await page.locator('#route-refresh').boundingBox();assert.ok(refresh.x>=0&&refresh.x+refresh.width<=width,`${width}px: the global refresh button fits the viewport width`);
+    assert.ok(await page.locator('#route-refresh').evaluate(button=>{const r=button.getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight&&document.elementFromPoint(r.left+r.width/2,r.top+r.height/2)?.closest('#route-refresh')===button;}),`${width}px: the global refresh action is actually visible and hittable`);
     assert.equal(await page.evaluate(()=>{
       const map=document.querySelector('.route-map').getBoundingClientRect(),inside=r=>r.left>=map.left-1&&r.right<=map.right+1&&r.top>=map.top-1&&r.bottom<=map.bottom+1;
       return [...document.querySelectorAll('#map-explorer-controls button,#map-use-location')].filter(button=>button.getClientRects().length&&getComputedStyle(button).visibility!=='hidden').every(button=>inside(button.getBoundingClientRect()));

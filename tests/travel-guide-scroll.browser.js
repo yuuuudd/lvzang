@@ -33,7 +33,7 @@ try{
     if(!point)return false;await page.mouse.move(point.x,point.y);await page.mouse.wheel(0,delta);await settle();return true;
   };
   for(const width of [1146,1440,580,390]){
-    for(const [area,selector]of [['header','#route-section > .node-header'],['refresh','#route-refresh-slot'],['content','.itinerary-content']]){
+    for(const [area,selector]of [['header','#route-section > .node-header'],['content','.itinerary-content']]){
       await prepare(width);const before=await snapshot(),hit=await wheelAt(selector,350),after=await snapshot();observations.push({width,area,hit,before,after});
       if(!hit||after.guide.scrollTop<=before.guide.scrollTop+30)failures.push(`${width}px ${area}: wheel must move the whole guide pane, got pane ${before.guide.scrollTop}→${after.guide.scrollTop}, nested ${before.content.scrollTop}→${after.content.scrollTop}, page ${before.outer}→${after.outer}`);
     }
@@ -53,5 +53,6 @@ try{
   }
   await mkdir('artifacts/map-advisor',{recursive:true});await writeFile('artifacts/map-advisor/guide-scroll-geometry.json',JSON.stringify(observations,null,2));
   assert.deepEqual(errors,[]);assert.deepEqual(failures,[],'Wheel must scroll the complete guide rather than trapping users in nested regions');
-  console.log('PASS: header, refresh, content and references scroll one guide pane at 1146/1440/580/390; narrow boundaries chain to the outer page; trip bytes unchanged.');
+  assert.equal(await page.locator('#guide-pane #route-refresh-slot').count(),0,'The global refresh action is outside the guide scroll surface');
+  console.log('PASS: header, content and references scroll one guide pane at 1146/1440/580/390; global refresh is separate; narrow boundaries chain to the outer page; trip bytes unchanged.');
 }finally{await browser.close();await new Promise(resolve=>server.close(resolve));}

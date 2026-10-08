@@ -5,6 +5,7 @@ import {
   selectAmapPlace,
   parseAmapRoute,
   amapNavigationUrl,
+  selectAmapDistrict,
 } from '../public/src/travel-map-data.js';
 
 const poi = (values = {}) => ({
@@ -14,6 +15,36 @@ const poi = (values = {}) => ({
   cityname: '北京市',
   location: '116.397026,39.918058',
   ...values,
+});
+
+test('province destinations accept POIs with matching provider province evidence, not unrelated cities',()=>{
+ const result=selectAmapPlace([
+  poi({id:'tibet',name:'布达拉宫',cityname:'拉萨市',pname:'西藏自治区',adcode:'540102',location:[91.118,29.654]}),
+  poi({id:'other',name:'布达拉宫',cityname:'广州市',pname:'广东省',adcode:'440106'}),
+ ],{name:'布达拉宫',city:'西藏',region:{name:'西藏自治区',level:'province',adcode:'540000'}});
+ assert.equal(result.status,'matched');assert.equal(result.place.city,'拉萨市');assert.equal(result.candidates.length,1);
+ const unknown=selectAmapPlace([poi({name:'布达拉宫',cityname:'拉萨市'})],{name:'布达拉宫',city:'西藏',region:{level:'province',adcode:'540000'}});
+ assert.equal(unknown.status,'ambiguous','A city name alone cannot prove province membership');
+ assert.equal(selectAmapPlace([poi({name:'布达拉宫',cityname:'拉萨市',pname:'西藏自治区',adcode:'540102'})],{name:'布达拉宫',city:'广州'}).status,'missing');
+});
+
+test('district lookup only accepts a unique matching name and real provider center',()=>{
+ const tibet={name:'西藏自治区',level:'province',adcode:'540000',center:[91.1,29.65]};
+ assert.deepEqual(selectAmapDistrict([tibet],'西藏'),{name:tibet.name,level:tibet.level,adcode:tibet.adcode,position:[91.1,29.65],zoom:6});
+ assert.equal(selectAmapDistrict([{...tibet,name:'广东省'}],'西藏'),null);
+ assert.equal(selectAmapDistrict([tibet,{...tibet,adcode:'999999'}],'西藏'),null);
+ assert.equal(selectAmapDistrict([{...tibet,center:[null,29]}],'西藏'),null);
+ const province={name:'吉林省',level:'province',adcode:'220000',center:[125.32,43.89]},city={name:'吉林市',level:'city',adcode:'220200',center:[126.55,43.84]};
+ assert.equal(selectAmapDistrict([province],'吉林市'),null,'An explicitly requested city cannot become its namesake province');
+ assert.equal(selectAmapDistrict([province,city],'吉林市').level,'city');
+});
+
+test('a confirmed city or district never expands to its same-named province',()=>{
+ const changchun=poi({name:'公园',cityname:'长春市',pname:'吉林省',adcode:'220102'});
+ assert.equal(selectAmapPlace([changchun],{name:'公园',city:'吉林市',region:{name:'吉林市',level:'city',adcode:'220200'}}).status,'missing');
+ assert.equal(selectAmapPlace([changchun],{name:'公园',city:'吉林市'}).status,'missing');
+ const sibling=poi({name:'公园',cityname:'拉萨市',adname:'堆龙德庆区',pname:'西藏自治区',adcode:'540103'});
+ assert.equal(selectAmapPlace([sibling],{name:'公园',city:'城关区',region:{name:'城关区',level:'district',adcode:'540102'}}).status,'missing');
 });
 
 test('AMap locations accept SDK coordinates, pairs, objects and provider strings', () => {

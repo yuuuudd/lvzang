@@ -20,14 +20,14 @@ test('anonymous map config and exact proxy routes work with accounts enabled wit
     const config=await fetch(root+'/api/map/config');
     assert.equal(config.status,200);
     assert.deepEqual(await config.json(),{provider:'amap',enabled:true,key:publicKey,serviceHost:'/_AMapService'});
-    for(const path of ['/v3/log/init','/v3/place/text','/v3/direction/walking','/v3/direction/driving','/v4/map/styles']){
+    for(const path of ['/v3/log/init','/v3/place/text','/v3/config/district','/v3/direction/walking','/v3/direction/driving','/v4/map/styles']){
       const response=await fetch(root+'/_AMapService'+path+'?key=caller&jscode=caller-secret');
       assert.equal(response.status,200,path);
       const body=await response.text();
       assert.equal(body.includes(securityCode),false);assert.equal(body.includes(publicKey),false);
       assert.match(body,/\[redacted\]/);
     }
-    assert.equal(calls.length,5);
+    assert.equal(calls.length,6);
     for(const url of calls){assert.equal(url.searchParams.get('key'),publicKey);assert.equal(url.searchParams.get('jscode'),securityCode);assert.equal(url.origin,url.pathname==='/v4/map/styles'?'https://webapi.amap.com':'https://restapi.amap.com');}
   });
 });

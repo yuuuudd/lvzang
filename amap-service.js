@@ -3,6 +3,7 @@ const allowedPaths=new Set([
   '/v3/place/text','/v3/place/around','/v3/place/polygon','/v3/place/detail',
   '/v5/place/text','/v5/place/around','/v5/place/polygon','/v5/place/detail',
   '/v3/geocode/geo','/v3/geocode/regeo',
+  '/v3/config/district',
   '/v3/direction/walking','/v3/direction/driving',
   '/v4/direction/walking','/v5/direction/walking','/v5/direction/driving',
   '/v4/map/styles','/v3/log/init'

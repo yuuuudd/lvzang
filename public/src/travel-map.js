@@ -1,4 +1,4 @@
-import {selectAmapPlace,parseAmapRoute,amapNavigationUrl} from './travel-map-data.js';
+import {selectAmapPlace,selectAmapDistrict,mapDestinationKey,parseAmapRoute,amapNavigationUrl} from './travel-map-data.js';
 import {createLandmarkMarker,setLandmarkState} from './travel-map-landmarks.js';
 import {layoutLandmarks} from './travel-map-layout.js';
 import {createJourneyInspector} from './travel-map-journey.js';
@@ -74,6 +74,7 @@ export function createTravelMap() {
   categorySelect.setAttribute('aria-label','地标分类');
   let map = null, mapReadyPromise = null, sdk = null, generation = 0;
   let currentPlan = null, landmarkStops = [], mode = 'walk', available = false, threeD = true;
+  let currentDestination = null;
   let acceptedStops = [], excludedPlaces = [], excludedIds = [], showExploration = true, cameraMoved = false, isExample = false;
   let density = 'signature', category = 'all', membershipChange = null, activeDayIndex = 1;
   let locationToken = 0, searchToken = 0, currentLocation = null, locationMarker = null, locationPending = false;
@@ -86,6 +87,7 @@ export function createTravelMap() {
   let resolved = new Map(), markers = [], markerById = new Map(), rows = new Map();
   let drawn = new Set(), displayedRoutes = new Set(), selectionLine = null;
   const places = new Map(), placeRequests = new Map(), routes = new Map(), routeRequests = new Map();
+  const destinations = new Map(), destinationRequests = new Map();
   const enqueuePlaceQuery = createPacedQuery();
   const isCurrent = token => generation === token;
   const svgNamespace = 'http://www.w3.org/2000/svg';
@@ -260,6 +262,23 @@ export function createTravelMap() {
     else if (focusMarkers.length > 1) map.setFitView(focusMarkers, true, [135, 60, 75, 75], 17);
     scheduleLayout();
   }
+  async function destinationArea(city) {
+    if(destinations.has(city))return destinations.get(city);
+    if(!destinationRequests.has(city))destinationRequests.set(city,query(callback=>{
+      sdk.plugin(['AMap.DistrictSearch'],()=>{
+        try{if(!sdk.DistrictSearch)return callback('error');new sdk.DistrictSearch({subdistrict:0,extensions:'base',showbiz:false}).search(city,callback);}catch{callback('error');}
+      });
+    }).then(result=>{const area=selectAmapDistrict(result.districtList,city);if(area)destinations.set(city,area);return area;}).catch(()=>null).finally(()=>destinationRequests.delete(city)));
+    return destinationRequests.get(city);
+  }
+  function collectLandmarks(plan,options) {
+    const currentIds=new Set(plan.stops.map(stop=>stop.id));
+    const merged=[...plan.stops,...(options.landmarkStops||plan.stops)].filter(stop=>currentIds.has(stop.id)||currentDestination?.level==='province'||mapDestinationKey(stop.city||plan.city)===mapDestinationKey(plan.city));
+    acceptedStops=[...new Map(merged.filter(stop=>stop.kind!=='exploration').map(stop=>[stop.id,stop])).values()];
+    const discoveries=showExploration?getExplorationLandmarks(plan.city,{acceptedStops,excludedPlaces,excludedIds,density,category}):[];
+    const searched=[...searchedPlaces.values()].map(item=>item.stop).filter(stop=>!acceptedStops.some(accepted=>accepted.id===stop.id||accepted.name===stop.name));
+    landmarkStops=[...new Map([...acceptedStops,...discoveries,...searched].map(stop=>[stop.id,stop])).values()];
+  }
   function showCurrentLocation() {
     if (!currentLocation || !map || locationMarker) return;
     const content = element('span', '我的位置', 'map-current-location');
@@ -320,21 +339,23 @@ export function createTravelMap() {
       event.preventDefault(); if (!input.value.trim()) return; submit.disabled = true;
       try {
         const result = await search(input.value.trim(), currentPlan.city);
-        const selection = selectAmapPlace(result.poiList?.pois || [], {name: stop.name, city: currentPlan.city, aliases: stop.aliases || []});
+        const selection = selectAmapPlace(result.poiList?.pois || [], {name: stop.name, city: currentPlan.city, aliases: stop.aliases || [],region:currentDestination});
         candidates(stop, selection, token, selection.candidates.length ? '地址查询结果，请选择要前往的地点。' : '该地址暂无结果，请更换地址查询。');
       } catch {candidates(stop, {candidates: []}, token, '地址查询失败，请重试。');}
     };
     row.append(form, button('重试地点查询', () => render(currentPlan, viewOptions())));
   }
   function search(keyword, city, priority = false) {
-    const service = new sdk.PlaceSearch({city, citylimit: true, pageSize: 20, extensions: 'all'});
+    const scope=currentDestination?.level==='province'&&mapDestinationKey(currentDestination.name)===mapDestinationKey(city)&&currentDestination.adcode?currentDestination.adcode:city;
+    const service = new sdk.PlaceSearch({city:scope, citylimit: true, pageSize: 20, extensions: 'all'});
     return enqueuePlaceQuery(() => query(callback => service.search(keyword, (status, result) => callback(status === 'no_data' ? 'complete' : status, status === 'no_data' ? {poiList: {pois: []}} : result))),{priority});
   }
   async function locate(stop, city, token) {
+    const region=currentDestination;
     const key = lookupKey(city, stop);
     if (places.has(key)) return confirm(stop, places.get(key), token);
     if (!placeRequests.has(key)) placeRequests.set(key, search(stop.name, city).then(result => {
-      const selection = selectAmapPlace(result.poiList?.pois || [], {name: stop.name, city, aliases: stop.aliases || []});
+      const selection = selectAmapPlace(result.poiList?.pois || [], {name: stop.name, city, aliases: stop.aliases || [],region});
       if (selection.status === 'matched') places.set(key, selection.place);
       return selection;
     }).finally(() => placeRequests.delete(key)));
@@ -383,21 +404,18 @@ export function createTravelMap() {
   async function render(plan, options = {}) {
     if (!plan) return;
     const cityChanged = currentPlan && currentPlan.city !== plan.city;
+    const needsDestinationView=!map||!currentPlan||cityChanged;
     const preserveSelection = Boolean(options.preserveSelection && !cityChanged);
     if (!preserveSelection) cancelLocation();
-    if (cityChanged) {searchedPlaces.clear();currentLocation=null;++searchToken;searchResults.replaceChildren();searchStatus.textContent='精选目录并非全城所有地点；可以用高德搜索补充。';}
+    if (cityChanged) {currentDestination=null;searchedPlaces.clear();currentLocation=null;++searchToken;searchResults.replaceChildren();searchInput.value='';searchStatus.textContent='精选目录并非目的地所有地点；可以用高德搜索补充。';}
     currentPlan = plan;
+    searchInput.placeholder=`搜索${plan.city}的景点、餐厅或商圈`;searchInput.setAttribute('aria-label',`搜索${plan.city}的地点`);
     membershipChange = options.onMembershipChange || null;
     activeDayIndex = options.activeDayIndex || plan.dayIndex || 1;
     isExample = Boolean(options.isExample);
     cameraMoved = Boolean(options.preserveCamera && map && !cityChanged);
-    const cityName = value => String(value || '').replace(/市$/, '');
-    const merged = [...plan.stops, ...(options.landmarkStops || plan.stops)].filter(stop => cityName(stop.city || plan.city) === cityName(plan.city));
-    acceptedStops = [...new Map(merged.filter(stop => stop.kind !== 'exploration').map(stop => [stop.id, stop])).values()];
     excludedPlaces = [...(options.excludedPlaces || [])]; excludedIds = [...(options.excludedIds || [])];
-    const discoveries = showExploration ? getExplorationLandmarks(plan.city, {acceptedStops, excludedPlaces, excludedIds,density,category}) : [];
-    const searched = [...searchedPlaces.values()].map(item=>item.stop).filter(stop=>!acceptedStops.some(accepted=>accepted.id===stop.id||accepted.name===stop.name));
-    landmarkStops = [...new Map([...acceptedStops,...discoveries,...searched].map(stop=>[stop.id,stop])).values()];
+    collectLandmarks(plan,options);
     const token = ++generation;
     clear(); journey.reset({landmarkStops, mode, preserve: preserveSelection, preserveCamera: cameraMoved, isExample}); resetNavigation(); controls(false);
     locationDetails.open = false;
@@ -411,9 +429,15 @@ export function createTravelMap() {
       }
       sdk = await loadSdk(config); if (!isCurrent(token)) return;
       await initializeMap(); if (!isCurrent(token)) return;
+      // Clear the previous destination even if its replacement has no POIs yet.
+      if(cityChanged&&!cameraMoved)map.setZoomAndCenter(4,[104,35]);
+      const area=await destinationArea(plan.city);if(!isCurrent(token))return;
+      currentDestination=area;collectLandmarks(plan,options);
+      journey.reset({landmarkStops,mode,preserve:preserveSelection,preserveCamera:cameraMoved,isExample});
+      if(needsDestinationView&&!cameraMoved&&area)map.setZoomAndCenter(area.zoom,area.position);
       map.resize?.(); available = true; controls(true);showCurrentLocation();
       if (!landmarkStops.length) {
-        setStatus('当天尚无地点 · 高德地图', 'empty'); showMessage('这一天还没有可靠地点安排，可在对话中补充。'); return;
+        setStatus(`${plan.city} · 当天尚无地点 · 高德地图`, 'empty'); showMessage(area?`已定位${area.name}。这一天还没有可靠地点安排，可搜索地点或在对话中补充。`:`暂未定位“${plan.city}”，当前显示全国范围。可搜索具体地点或补充目的地名称。`); return;
       }
       setStatus(`高德地图 · 正在核实 ${landmarkStops.length} 处地标`, 'resolving'); message.hidden = true;
       landmarkStops.forEach(rowFor); locationDetails.hidden = false; await Promise.all(landmarkStops.map(stop => locate(stop, plan.city, token)));
@@ -467,8 +491,8 @@ export function createTravelMap() {
     searchStatus.textContent=`正在高德搜索${city}的“${term}”…`;searchResults.replaceChildren();
     try {
       const result=await search(term,city,true);if(version!==searchToken||currentPlan.city!==city)return;
-      const candidates=selectAmapPlace(result.poiList?.pois||[],{city,name:term}).candidates.slice(0,8);
-      searchStatus.textContent=candidates.length?'核对地址后选择；查看地点不会自动加入行程。':'没有找到该城市的匹配地点，请换个名称或补充地址。';
+      const candidates=selectAmapPlace(result.poiList?.pois||[],{city,name:term,region:currentDestination}).candidates.slice(0,8);
+      searchStatus.textContent=candidates.length?'核对地址后选择；查看地点不会自动加入行程。':'没有找到该目的地的匹配地点，请换个名称或补充地址。';
       for(const place of candidates){
         const choice=button(`${place.name} · ${place.address||place.city}`,async()=>{
           if(version!==searchToken||currentPlan.city!==city)return;

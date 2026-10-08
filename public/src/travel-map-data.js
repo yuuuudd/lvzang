@@ -42,7 +42,21 @@ export function normalizeAmapLocation(value) {
 }
 
 const nameKey = value => boundedText(value, 240).toLowerCase().replace(/\s+/g, '');
-const cityKey = value => boundedText(value, 120).toLowerCase().replace(/\s+/g, '').replace(/市$/, '');
+export const mapDestinationKey = value => boundedText(value, 120).toLowerCase().replace(/\s+/g, '').replace(/(?:特别行政区|壮族自治区|回族自治区|维吾尔自治区|自治区|自治州|地区|省|市)$/, '');
+const cityKey = mapDestinationKey;
+
+/** An administrative name match is required before using a provider center. */
+export function selectAmapDistrict(districts, destination) {
+  const key=cityKey(destination);
+  const list=Array.isArray(districts)?districts:[],exact=list.filter(item=>nameKey(item?.name)===nameKey(destination));
+  const explicitLevel=/(?:省|市|自治区|特别行政区|自治州|地区)$/.test(boundedText(destination,120));
+  const matches=exact.length?exact:explicitLevel?[]:list.filter(item=>key&&cityKey(item?.name)===key);
+  if(matches.length!==1)return null;
+  const item=matches[0],position=normalizeAmapLocation(item.center);
+  if(!position||!['country','province','city','district'].includes(item.level))return null;
+  const adcode=boundedText(item.adcode,6);
+  return {name:boundedText(item.name,120),level:item.level,adcode:/^\d{6}$/.test(adcode)?adcode:'',position,zoom:{country:4,province:6,city:11,district:13}[item.level]};
+}
 
 function normalizePlace(poi) {
   if (!poi || typeof poi !== 'object') return null;
@@ -50,12 +64,14 @@ function normalizePlace(poi) {
     const position = normalizeAmapLocation(poi.location);
     const name = boundedText(poi.name, 240);
     if (!position || !name) return null;
+    const province=boundedText(poi.pname,120),district=boundedText(poi.adname,120),adcode=boundedText(poi.adcode,6);
     return {
       id: boundedText(poi.id, 160),
       name,
       address: boundedText(poi.address, 1000, true),
       city: boundedText(poi.cityname, 120) || boundedText(poi.cityName, 120) || boundedText(poi.city, 120),
       position,
+      ...(province?{province}:{}),...(district?{district}:{}),...(/^\d{6}$/.test(adcode)?{adcode}:{}),
     };
   } catch {
     return null;
@@ -64,23 +80,44 @@ function normalizePlace(poi) {
 
 /** Only a unique exact/alias name with a confirmed current city is selected automatically. */
 export function selectAmapPlace(pois, query = {}) {
-  const {name, city, aliases = []} = query || {};
+  const {name, city, aliases = [], region = null} = query || {};
   const expectedCity = cityKey(city);
   const expectedNames = new Set([name, ...(Array.isArray(aliases) ? aliases : [])].map(nameKey).filter(Boolean));
   const ids = new Set();
   const candidates = [];
+  const matchArea=place=>{
+    const city=cityKey(place.city),province=cityKey(place.province),district=cityKey(place.district);
+    if(region?.level==='province'){
+      if(province&&province!==expectedCity)return false;
+      if(region.adcode&&place.adcode&&place.adcode.slice(0,2)!==region.adcode.slice(0,2))return false;
+      if(province===expectedCity||city===expectedCity)return true;
+      if(region.adcode&&place.adcode)return place.adcode.slice(0,2)===region.adcode.slice(0,2);
+      return null;
+    }
+    if(region?.level==='city'){
+      if(region.adcode&&place.adcode&&place.adcode.slice(0,4)!==region.adcode.slice(0,4))return false;
+      if(city)return city===expectedCity;
+      return region.adcode&&place.adcode?true:null;
+    }
+    if(region?.level==='district'){
+      if(region.adcode&&place.adcode&&place.adcode!==region.adcode)return false;
+      if(district)return district===expectedCity;
+      return region.adcode&&place.adcode?true:null;
+    }
+    if(city&&city===expectedCity)return true;
+    return expectedCity&&city?false:null;
+  };
   for (const poi of Array.isArray(pois) ? pois : []) {
     const place = normalizePlace(poi);
     if (!place) continue;
-    const candidateCity = cityKey(place.city);
-    if (expectedCity && candidateCity && candidateCity !== expectedCity) continue;
+    if (matchArea(place)===false) continue;
     if (place.id && ids.has(place.id)) continue;
     if (place.id) ids.add(place.id);
     candidates.push(place);
   }
   if (!candidates.length) return {status: 'missing', candidates};
   const exact = candidates.filter(place => expectedNames.has(nameKey(place.name)));
-  if (exact.length === 1 && expectedCity && cityKey(exact[0].city) === expectedCity) {
+  if (exact.length === 1 && expectedCity && matchArea(exact[0])===true) {
     return {status: 'matched', place: exact[0], candidates};
   }
   return {status: 'ambiguous', candidates};

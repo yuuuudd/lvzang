@@ -98,6 +98,7 @@ function mapPositions(plan){
 }
 function selectMapStop(id){selected=id;document.querySelectorAll('#map-markers .map-marker').forEach(el=>el.classList.toggle('selected',el.dataset.stop===selected));}
 export function renderMap(plan,collection,landmarkStops=plan.stops,mapOptions={}){
+  if(lastMap&&lastMap.plan.city!==plan.city){illustration=false;selected=null;}
   lastMap={plan,collection,landmarkStops,mapOptions};mapController ||= createTravelMap();
   $('map-title').textContent=`${plan.city} · ${illustration?'可选示意图':'立体地标'}`;$('map-view-toggle').textContent=illustration?'返回高德地图':'查看示意图';$('map-view-toggle').disabled=false;
   $('route-line').replaceChildren();$('map-markers').replaceChildren();
@@ -105,7 +106,7 @@ export function renderMap(plan,collection,landmarkStops=plan.stops,mapOptions={}
   mapController.pause();document.querySelector('.route-map').classList.add('illustration');
   const illustrated=plan.city==='广州'&&plan.stops.every(p=>anchors[p.id]),positions=mapPositions(plan);
   const proposed=plan.stops.some(p=>p.kind==='suggested');
-  document.querySelector('.route-map').classList.toggle('schematic',!illustrated);$('city-map').alt='广州珠江两岸风格化导览图，地标位置为示意';document.querySelector('.map-caption').textContent=illustrated?'示意导览 · 线路非交通路线':proposed?'顺序示意 · 地点与交通待核实':'地点相对位置 · 非导航地图';
+  document.querySelector('.route-map').classList.toggle('schematic',!illustrated);$('city-map').alt=illustrated?'广州珠江两岸风格化导览图，地标位置为示意':`${plan.city}行程顺序示意，非真实地图`;document.querySelector('.map-caption').textContent=illustrated?'示意导览 · 线路非交通路线':proposed?'顺序示意 · 地点与交通待核实':'地点相对位置 · 非导航地图';
   const route=[];
   plan.stops.forEach((p,i)=>{const pos=positions[p.id];if(!pos)return;const prev=plan.stops[i-1];if(illustrated&&prev&&((p.id==='gz-tower')!==(prev.id==='gz-tower'))){const bridge=[[48,46],[34,49],[27,60],[18,74],[48,87]];route.push(...(p.id==='gz-tower'?bridge:bridge.toReversed()));}route.push(pos);});
   const path=route.map(([x,y],i)=>`${i?'L':'M'}${x*10},${y*6.67}`).join(' ');$('route-line').innerHTML=path?`<path class="route-underlay" d="${path}"/><path class="route-path" d="${path}"/>`:'';
