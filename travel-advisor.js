@@ -64,6 +64,48 @@ function sourceReferences(value){
   const ids=new Set();function visit(node){if(!node||typeof node!=='object')return;if(Array.isArray(node)){node.forEach(visit);return;}for(const [key,child]of Object.entries(node)){if(key==='sourceIds'&&Array.isArray(child))child.filter(id=>typeof id==='string').forEach(id=>ids.add(id));else visit(child);}}visit(value);return [...ids];
 }
 
+// A broad search can return useful evidence while missing a user's named place.
+// Repair that gap with precise queries before asking the model to correct its
+// citations; the traveller should not have to supply our missing search terms.
+export async function supplementTravelResearch(previous,queries,options={}){
+  const research=emptyResearch(),pinnedIds=new Set(options.pinnedSourceIds||[]);
+  mergeResearch(research,previous,{retained:true,pinnedIds});
+  const deadline=AbortSignal.timeout(15_000),signal=options.signal?AbortSignal.any([options.signal,deadline]):deadline;
+  const search=options.toolImplementations?.searchTravelWeb||searchTravelWeb;
+  const read=options.toolImplementations?.fetchTravelPage||fetchTravelPage,attemptedUrls=new Set();
+  const sourceKey=value=>value.normalize('NFKC').replace(/[\s·•]/g,'').toLowerCase();
+  const covered=target=>research.sources.some(source=>readableSource(source)&&(target.names||[]).some(name=>sourceKey(source.title+' '+source.excerpt).includes(sourceKey(name))));
+  const unique=[...new Map(queries.map(query=>[JSON.stringify(query),query])).values()].slice(0,4);
+  const execute=async(fn,args)=>{
+    research.toolCalls++;
+    try{
+      const result=await withAbort(fn(args,{...options.researchOptions,fetchImpl:options.researchFetchImpl||options.researchOptions?.fetchImpl||fetch,signal}),signal);
+      mergeResearch(research,result,{pinnedIds});
+    }catch(error){
+      options.signal?.throwIfAborted();
+      mergeResearch(research,{sources:[],error:deadline.aborted?'地点补充检索暂时超时':text(error?.message,300)||'地点补充检索失败'},{pinnedIds});
+    }
+  };
+  for(const target of unique){
+    options.signal?.throwIfAborted();
+    if(deadline.aborted)break;
+    if(covered(target))continue;
+    // A catalog URL is only a lead. It becomes evidence only after a real read,
+    // and a stale or inaccessible page does not prevent the precise search.
+    if(target.referenceUrl&&!attemptedUrls.has(target.referenceUrl)){
+      attemptedUrls.add(target.referenceUrl);
+      options.onProgress?.({type:'stage',role:'资料 Agent',status:'working',detail:'正在读取你想去地点的公开介绍'});
+      await execute(read,{url:target.referenceUrl});
+      if(covered(target))continue;
+    }
+    if(deadline.aborted)break;
+    const query={city:target.city,query:target.query};
+    options.onProgress?.({type:'stage',role:'资料 Agent',status:'working',detail:`补查你想去的地点：${query.query}`});
+    await execute(search,query);
+  }
+  return research;
+}
+
 function withAbort(promise,signal){
   signal.throwIfAborted();
   return new Promise((resolve,reject)=>{

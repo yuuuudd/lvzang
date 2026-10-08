@@ -32,7 +32,8 @@ function normalizeValue(field,value){
   if(field==='dailyHours')return number(value,1,12,'每日可用时间');
   if(field==='startTime'){const result=boundedText(value,5,'开始时间');if(!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(result))throw new Error('开始时间格式无效');return result;}
   if(field==='pace'){if(!['easy','normal','active'].includes(value))throw new Error('旅行节奏格式无效');return value;}
-  if(field==='interests')return names(value,16);
+  // Allow all 16 interests plus up to 12 broad place kinds reclassified below.
+  if(field==='interests')return names(value,28);
   if(['requiredPlaces','excludedPlaces'].includes(field)){
     const seen=new Set();return names(value).filter(name=>{
       const matched=placeKey(name),key=places.some(place=>place.id===matched)?matched:name;
@@ -118,6 +119,20 @@ export function normalizeTravelProfile(value){
     else if(['ready','paused'].includes(state.status))result.followUps=[];
   }
   return result;
+}
+
+const broadPlaceKinds=new Set(['园林','古典园林','江南园林','博物馆','美术馆','科技馆','展览馆','公园','古镇','古街','老街','寺庙','寺院','教堂','海边','海滩','沙滩','湖泊','山水','自然风光','风景区','景区','商场','商圈','购物中心','美食街','夜市','小吃街','步行街','历史街区','文化街区','地标','热门景点','小众景点']);
+export function normalizePlacePreferences(value){
+  const profile=normalizeTravelProfile(value),required=profile.fields.requiredPlaces,interests=profile.fields.interests;
+  // Only bare kinds are safe to reclassify. Named places such as 拙政园,
+  // 苏州博物馆 and 人民公园 remain exact constraints, including unknown names.
+  const excluded=new Set((profile.fields.excludedPlaces.value||[]).map(name=>name.trim()));
+  const kinds=(required.value||[]).filter(name=>broadPlaceKinds.has(name)&&!excluded.has(name));
+  if(!kinds.length)return profile;
+  required.value=required.value.filter(name=>!kinds.includes(name));
+  interests.value=[...new Set([...(interests.value||[]),...kinds])];
+  if(interests.status==='missing')interests.status=required.status;
+  return normalizeTravelProfile(profile);
 }
 
 function chineseNumber(value){

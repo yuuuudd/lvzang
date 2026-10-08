@@ -12,7 +12,7 @@ const toolCall=(name,args,id='lookup')=>({id,type:'function',function:{name,argu
 const toolMessage=calls=>({tool_calls:calls,content:null});
 function provider(messages){
   const calls=[];
-  return {calls,key:'fixture-not-a-secret',model:'fixture-model',fetchImpl:async(url,options)=>{
+  return {calls,key:'fixture-not-a-secret',model:'fixture-model',researchFetchImpl:async()=>new Response('',{status:503}),fetchImpl:async(url,options)=>{
     assert.equal(url,'https://api.deepseek.com/chat/completions');
     calls.push(JSON.parse(options.body));assert.ok(calls.length<=messages.length,'unexpected extra model call');
     const output=messages[calls.length-1],next=typeof output==='function'?output(calls.at(-1)):output;
