@@ -22,9 +22,9 @@ try{
     const visible=await prompt.evaluate(element=>{
       const rect=element.getBoundingClientRect(),question=element.nextElementSibling.querySelector('p').getBoundingClientRect();
       const toolbar=document.querySelector('#route-refresh-slot').getBoundingClientRect(),chat=element.closest('.chat-scroll').getBoundingClientRect();
-      return rect.top>=Math.max(toolbar.bottom,chat.top)&&rect.bottom<=Math.min(innerHeight,chat.bottom)&&question.bottom<=Math.min(innerHeight,chat.bottom);
+      return {ok:rect.top>=Math.max(toolbar.bottom,chat.top)&&rect.bottom<=Math.min(innerHeight,chat.bottom)&&question.bottom<=Math.min(innerHeight,chat.bottom),width:innerWidth,height:innerHeight,promptTop:rect.top,promptBottom:rect.bottom,questionBottom:question.bottom,toolbarBottom:toolbar.bottom,chatTop:chat.top,chatBottom:chat.bottom};
     });
-    assert.ok(visible,'The customization reminder and complete current question are visible together, below the toolbar and within the chat pane');
+    assert.ok(visible.ok,'The customization reminder and complete current question are visible together, below the toolbar and within the chat pane: '+JSON.stringify(visible));
     const savedProfile=await page.evaluate(()=>JSON.parse(localStorage.getItem('lvzang.v1')).profile);
     assert.equal(await page.locator('.chat-message.assistant:last-child .message-content').textContent(),savedProfile.followUps[0].question,'The visible message asks the current question directly, without a repeated introduction displacing it');
   };
@@ -33,9 +33,10 @@ try{
   assert.equal(await page.locator('#route-refresh').count(),1,'A visible refresh action must exist in the shared toolbar');
   assert.equal(await page.locator('#route-destination').inputValue(),'广州');
   for(const width of [1146,1440,580,390]){
-    await page.setViewportSize({width,height:900});await page.reload();await page.waitForSelector('.stop-guide');
+    await page.setViewportSize({width,height:900});await page.reload();await page.waitForSelector('.stop-guide',{state:'attached'});
     const initialVisibility=await page.locator('#route-refresh').evaluate(button=>{const r=button.getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight&&document.elementFromPoint(r.left+r.width/2,r.top+r.height/2)?.closest('#route-refresh')===button;});
     assert.ok(initialVisibility,`${width}px: global refresh is visible and actionable on the initial screen`);
+    if(width<768)await page.getByRole('button',{name:'攻略',exact:true}).click();
     await page.locator('.canvas-panel').scrollIntoViewIfNeeded();
     const guideBox=await page.locator('#guide-pane').boundingBox();await page.mouse.move(guideBox.x+guideBox.width/2,Math.min(850,Math.max(guideBox.y+70,guideBox.y+guideBox.height/2)));await page.mouse.wheel(0,600);await page.waitForTimeout(120);
     const visibility=await page.locator('#route-refresh').evaluate(button=>{const r=button.getBoundingClientRect();return {top:r.top,bottom:r.bottom,height:innerHeight,guideScroll:document.getElementById('guide-pane').scrollTop,inView:r.top>=0&&r.bottom<=innerHeight&&document.elementFromPoint(r.left+r.width/2,r.top+r.height/2)?.closest('#route-refresh')===button};});

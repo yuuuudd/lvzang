@@ -84,18 +84,20 @@ try{
   assert.ok(keyAfter.guide.width>keyBefore.guide.width+10&&keyAfter.map.width<keyBefore.map.width-10,'The divider is operable with the keyboard');
   await page.keyboard.press('Home');assert.ok(Math.abs((await geometry()).ratio-.55)<.004,'Home restores the default map proportion');
   await mkdir('artifacts/guide-layout',{recursive:true});await page.screenshot({path:'artifacts/guide-layout/desktop-split.png'});
-  const touch=await page.context().newCDPSession(page);
   for(const width of [580,390]){
-    await page.setViewportSize({width,height:900});const before=await verifyGeometry(width),point=await pointOnDivider();
-    const start={x:Math.round(point.x),y:Math.round(point.y)};
-    await touch.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[start]});
-    for(const offset of [8,16,24])await touch.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:start.x-offset,y:start.y}]});
-    await touch.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
-    const after=await verifyGeometry(width);assert.ok(after.guide.width>before.guide.width+5&&after.map.width<before.map.width-5,`${width}px: touch adjusts the real two-pane split`);
-    assert.ok(Math.abs(after.span-before.span)<2,`${width}px: touch preserves total width ${JSON.stringify({before,after})}`);
-    assert.equal(await page.locator('#canvas-viewport').evaluate(node=>node.classList.contains('is-dragging')),false,'Divider gestures do not drag the workspace');
-    await page.locator('#route-refresh').scrollIntoViewIfNeeded();await page.screenshot({path:`artifacts/guide-layout/split-${width}.png`});
+    await page.setViewportSize({width,height:900});
+    await page.getByRole('button',{name:'攻略',exact:true}).click();
+    assert.ok(await page.locator('.stop-guide').first().isVisible());
+    assert.ok((await page.locator('#guide-pane').boundingBox()).width>width-40,'Mobile guide is readable at full width');
+    assert.ok(!await page.locator('#travel-splitter').isVisible());
+    assert.ok(!await page.locator('#map-pane').isVisible());
+    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+    await page.screenshot({path:`artifacts/guide-layout/guide-${width}.png`});
+    await page.getByRole('button',{name:'地图',exact:true}).click();
+    assert.ok(await page.locator('#map-pane').isVisible());
+    assert.ok(!await page.locator('#guide-pane').isVisible());
+    await page.screenshot({path:`artifacts/guide-layout/map-${width}.png`});
   }
   assert.equal(await page.evaluate(()=>localStorage.getItem('lvzang.v1')),originalState,'Layout preferences leave the accepted trip bytes unchanged');
-  assert.deepEqual(errors,[]);console.log('PASS: real map/guide split at 1146/1440/580/390, conserved width, automatic font, pointer/touch/keyboard, Home and reload, bounded map controls, refresh and unchanged itinerary.');
+  assert.deepEqual(errors,[]);console.log('PASS: desktop split with pointer/keyboard, automatic font, Home and reload; full-width mobile map/guide switching; bounded map controls and unchanged itinerary.');
 }finally{await browser.close();await new Promise(resolve=>server.close(resolve));}

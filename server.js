@@ -32,7 +32,7 @@ const storySystem=`你是文旅立体纪念品的故事策划与雕塑美术指�
 只输出 JSON，字段为 caption:1到8字作品标题、reason:160字内设计意图、subjectCount:可选的1到4人物数、brief:{summary:180字内的故事理解,elements:1到8项关键要素字符串每项80字内,composition:240字内的具体动作与空间安排,imagePrompt:600字内的完整中文生图提示词,label:始终为空字符串,decisions:下方四项记忆决策}。不要输出 theme、motif、layout、subjectScale、photoStyle、threshold 等旧版几何参数，它们由本地规则决定。地点栏有值时，imagePrompt 必须写出完全相同的地点名，不得替换成别处；地点栏为空、无活动预设且故事和照片也没有可靠地点时，用不指向真实城市或地标的概括场景，place 决策说明地点未指定。imagePrompt 必须完整展开有依据的关系、动作、服饰道具、层次和细节取舍，包含本轮修改要求，不能只复述故事或写抽象形容词；不要把独立文字摘要当作图片内容。\n${memoryRules}`;
 const files=new Set(['index.html','simple.html','style.css','simple.css','src/simple-ui.js','assets/simple-trip-preview.png','assets/simple-object-preview.png','src/app.js','src/trips.js','src/trip-batch.js','src/collage.js','src/design.js','src/model.js','src/artwork.js','src/preview.js','src/relief.js','src/history.js','src/print-settings.js']);
 for(const name of ['src/library-wire.js','src/server-keepsake-store.js'])files.add(name);
-for(const name of ['src/travel-refresh.js','travel-refresh.css','src/travel-guide-layout.js','src/travel-guide-layout.css'])files.add(name);
+for(const name of ['src/travel-refresh.js','travel-refresh.css','travel-journal.css','src/travel-guide-layout.js','src/travel-guide-layout.css'])files.add(name);
 files.add('src/travel-landmark-geometry.js');
 for(const name of ['production.html','production.css','operator.html','operator.css','src/operator.js','src/operator-domain.js','src/operator-bridge.js','src/operator-preview.js'])files.add(name);
 for(const name of ['portal.html','orders.html','accounts.css','src/account-client.js','src/account-ui.js','src/portal.js','src/orders.js','src/order-client.js','src/order-conversation.js'])files.add(name);

@@ -16,12 +16,24 @@ export function travelSplitLayout(width,mapRatio=defaultRatio){
 export function initTravelGuideLayout(){
   const world=document.getElementById('canvas-world'),splitter=document.getElementById('travel-splitter');
   const mapPane=document.getElementById('map-pane'),guidePane=document.getElementById('guide-pane');
+  const toolbar=document.getElementById('route-refresh-slot');
   if(!world||!splitter||!mapPane||!guidePane)return {destroy(){}};
   let preference=defaultRatio,drag=null,frame=0;
+  const compact=matchMedia('(max-width:767px)'),viewButtons=[...document.querySelectorAll('[data-travel-view]')];
+  let mobileView='map';
+  function showView(){
+    mapPane.hidden=compact.matches&&mobileView!=='map';guidePane.hidden=compact.matches&&mobileView!=='guide';
+    for(const button of viewButtons)button.setAttribute('aria-pressed',String(button.dataset.travelView===mobileView));
+    schedule();
+  }
+  function chooseView(event){mobileView=event.currentTarget.dataset.travelView;showView();}
+  for(const button of viewButtons)button.addEventListener('click',chooseView);
+  compact.addEventListener('change',showView);showView();
   try{const saved=JSON.parse(localStorage.getItem(storageKey)||'null');if(Number.isFinite(saved?.mapRatio)&&saved.mapRatio>0&&saved.mapRatio<1)preference=saved.mapRatio;}catch{}
   function availableWidth(){return Math.max(0,world.clientWidth-(splitter.offsetWidth||12));}
   function paint(){
     frame=0;const layout=travelSplitLayout(availableWidth(),preference);
+    if(toolbar)world.closest('.canvas-panel')?.style.setProperty('--travel-toolbar-height',toolbar.offsetHeight+'px');
     world.style.setProperty('--travel-map-width',layout.mapWidth+'px');
     guidePane.style.setProperty('--guide-font-size',layout.fontSize+'px');
     guidePane.style.setProperty('--guide-control-size',(12+(layout.fontSize-14)/2)+'px');
@@ -65,8 +77,10 @@ export function initTravelGuideLayout(){
   splitter.addEventListener('keydown',keyboard);splitter.addEventListener('dblclick',reset);
   splitter.setAttribute('aria-orientation','vertical');
   splitter.title='左右拖动调整地图与攻略比例；方向键微调，Home 或双击复原';
-  const observer=new ResizeObserver(schedule);observer.observe(world);paint();
+  const observer=new ResizeObserver(schedule);observer.observe(world);if(toolbar)observer.observe(toolbar);paint();
   return {destroy(){
+    compact.removeEventListener('change',showView);for(const button of viewButtons)button.removeEventListener('click',chooseView);
+    mapPane.hidden=false;guidePane.hidden=false;
     if(frame)cancelAnimationFrame(frame);observer.disconnect();
     const captured=drag?.id;drag=null;world.classList.remove('travel-split-dragging');
     if(captured!==undefined&&splitter.hasPointerCapture(captured))splitter.releasePointerCapture(captured);
