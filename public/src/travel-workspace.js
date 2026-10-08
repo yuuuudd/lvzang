@@ -113,38 +113,6 @@ export function renderMap(plan,collection,landmarkStops=plan.stops,mapOptions={}
   $('map-markers').querySelectorAll('[data-stop]').forEach(button=>{const [x,y]=positions[button.dataset.stop];button.style.left=x+'%';button.style.top=y+'%';button.onclick=()=>selectMapStop(button.dataset.stop);});
 }
 export function initWorkspace(){
-  drawPhases();$('map-view-toggle').onclick=()=>{illustration=!illustration;if(lastMap)renderMap(lastMap.plan,lastMap.collection,lastMap.landmarkStops,lastMap.mapOptions);};
-  const viewport=$('canvas-viewport'),world=$('canvas-world'),nodes=[...world.querySelectorAll('.canvas-node')];let scale=1,panX=24,panY=10,drag=null,panning=true,automaticView=true,wasMobile=mobile();
-  const initial=nodes.map(node=>({node,x:Number(node.dataset.x),y:Number(node.dataset.y)}));
-  const followingRow=initial.filter(({node})=>['time-node','budget-node','preferences-node'].includes(node.id));let automaticRowY=704;
-  const routeNode=$('route-section'),sourceNode=$('sources-node');let automaticSourceY=662;
-  function arrangeSources(){if(mobile())return;const nextY=Math.max(662,Number(routeNode.dataset.y)+routeNode.offsetHeight+18);if(Number(sourceNode.dataset.x)===780&&[662,automaticSourceY].includes(Number(sourceNode.dataset.y)))position(sourceNode,780,nextY);automaticSourceY=nextY;}
-  function arrangeFollowingRow(){
-    if(mobile())return;
-    const nextY=Math.max(704,$('map-node').offsetHeight+18);
-    for(const {node,x,y}of followingRow){const currentX=Number(node.dataset.x),currentY=Number(node.dataset.y);if(currentX===x&&(currentY===automaticRowY||currentY===y))position(node,x,nextY);}
-    automaticRowY=nextY;
-  }
-  function connections(){const from=$('map-node'),fx=Number(from.dataset.x)+from.offsetWidth/2,fy=Number(from.dataset.y)+from.offsetHeight;const paths=nodes.filter(node=>node!==from).map(node=>{const tx=Number(node.dataset.x)+node.offsetWidth/2,ty=Number(node.dataset.y);return `<path d="M${fx} ${fy} C${fx} ${(fy+ty)/2},${tx} ${(fy+ty)/2},${tx} ${ty}"/><circle cx="${tx}" cy="${ty}" r="3"/>`;});$('canvas-connections').innerHTML=paths.join('');}
-  function update(){world.style.transform=`translate(${panX}px,${panY}px) scale(${scale})`;$('zoom-value').textContent=Math.round(scale*100)+'%';arrangeSources();connections();}
-  function position(node,x,y){node.dataset.x=String(x);node.dataset.y=String(y);node.style.left=x+'px';node.style.top=y+'px';}
-  function bounds(){return {minX:Math.min(...nodes.map(n=>Number(n.dataset.x))),minY:Math.min(...nodes.map(n=>Number(n.dataset.y))),maxX:Math.max(...nodes.map(n=>Number(n.dataset.x)+n.offsetWidth)),maxY:Math.max(...nodes.map(n=>Number(n.dataset.y)+n.offsetHeight))};}
-  // Default to a readable width. A taller map must not shrink the entire workspace.
-  function widthView(){if(mobile())return;const {minX,minY,maxX}=bounds();scale=Math.max(.35,Math.min(1.6,(viewport.clientWidth-48)/(maxX-minX)));panX=24-minX*scale;panY=10-minY*scale;update();}
-  function fit(){if(mobile())return;automaticView=false;const {minX,minY,maxX,maxY}=bounds();scale=Math.max(.35,Math.min(1,(viewport.clientWidth-48)/(maxX-minX),(viewport.clientHeight-35)/(maxY-minY)));panX=24-minX*scale;panY=10-minY*scale;update();}
-  function zoom(next,x=viewport.clientWidth/2,y=viewport.clientHeight/2){automaticView=false;const value=Math.max(.35,Math.min(1.6,next)),ratio=value/scale;panX=x-(x-panX)*ratio;panY=y-(y-panY)*ratio;scale=value;update();}
-  initial.forEach(({node,x,y})=>position(node,x,y));
-  $('zoom-in').onclick=()=>zoom(scale+.1);$('zoom-out').onclick=()=>zoom(scale-.1);$('fit-top').onclick=fit;$('fit-bottom').onclick=fit;
-  $('reset-layout').onclick=()=>{initial.forEach(({node,x,y})=>position(node,x,y));arrangeFollowingRow();automaticView=true;widthView();};
-  $('pan-tool').onclick=()=>{panning=!panning;$('pan-tool').setAttribute('aria-pressed',String(panning));viewport.style.cursor=panning?'grab':'default';};
-  viewport.addEventListener('pointerdown',e=>{if(mobile()||e.button!==0||e.target.closest('button,a,input,textarea,select,summary,canvas'))return;const header=e.target.closest('.node-header'),node=header?.closest('.canvas-node');if(!node&&(e.target.closest('.canvas-node')||!panning))return;automaticView=false;drag={node,startX:e.clientX,startY:e.clientY,x:node?Number(node.dataset.x):panX,y:node?Number(node.dataset.y):panY};viewport.setPointerCapture(e.pointerId);viewport.classList.add('is-dragging');node?.classList.add('dragging');e.preventDefault();});
-  viewport.addEventListener('pointermove',e=>{if(!drag)return;const dx=e.clientX-drag.startX,dy=e.clientY-drag.startY;if(drag.node)position(drag.node,drag.x+dx/scale,drag.y+dy/scale);else{panX=drag.x+dx;panY=drag.y+dy;}update();});
-  const end=()=>{drag?.node?.classList.remove('dragging');drag=null;viewport.classList.remove('is-dragging');};viewport.addEventListener('pointerup',end);viewport.addEventListener('pointercancel',end);viewport.addEventListener('lostpointercapture',end);
-  viewport.addEventListener('wheel',e=>{if(mobile()||e.target.closest('.route-map,.map-details,.itinerary-content,.source-panel'))return;e.preventDefault();automaticView=false;if(e.ctrlKey||e.metaKey){const r=viewport.getBoundingClientRect();zoom(scale*Math.exp(-e.deltaY*.002),e.clientX-r.left,e.clientY-r.top);}else{panX-=e.deltaX;panY-=e.deltaY;update();}},{passive:false});
-  viewport.addEventListener('keydown',e=>{if(mobile()||!['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)||e.target.closest('.route-map,input,textarea,select,button,a,canvas,summary'))return;automaticView=false;const dx=e.key==='ArrowLeft'?-20:e.key==='ArrowRight'?20:0,dy=e.key==='ArrowUp'?-20:e.key==='ArrowDown'?20:0,node=e.target.closest('.node-header')?.closest('.canvas-node');if(node)position(node,Number(node.dataset.x)+dx,Number(node.dataset.y)+dy);else{panX+=dx;panY+=dy;}update();e.preventDefault();});
-  new ResizeObserver(()=>{const isMobile=mobile();if(isMobile!==wasMobile){automaticView=true;wasMobile=isMobile;}arrangeFollowingRow();if(!drag&&automaticView)widthView();else connections();}).observe(viewport);
-  new ResizeObserver(()=>{arrangeFollowingRow();connections();}).observe($('map-node'));
-  new ResizeObserver(()=>{arrangeSources();connections();}).observe(routeNode);
-  routeNode.addEventListener('travel-guide-layout',event=>{if(event.detail?.user)automaticView=false;arrangeSources();connections();});
-  requestAnimationFrame(()=>{arrangeFollowingRow();widthView();});
+  drawPhases();
+  $('map-view-toggle').onclick=()=>{illustration=!illustration;if(lastMap)renderMap(lastMap.plan,lastMap.collection,lastMap.landmarkStops,lastMap.mapOptions);};
 }

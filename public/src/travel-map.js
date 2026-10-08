@@ -136,7 +136,7 @@ export function createTravelMap() {
     if (layoutFrame !== null) return;
     layoutFrame = requestAnimationFrame(() => {layoutFrame = null; layoutMarkers();});
   }
-  new ResizeObserver(scheduleLayout).observe(viewport);
+  new ResizeObserver(()=>{map?.resize?.();scheduleLayout();}).observe(viewport);
 
   function clearSelectedRoute() {
     if (selectionLine) map?.remove?.(selectionLine);
