@@ -14,6 +14,20 @@ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const browser=await chromium.launch({channel:'chrome',headless:true});
 try{
   const page=await browser.newPage({viewport:{width:1440,height:900},reducedMotion:'reduce'}),errors=[];page.on('pageerror',e=>errors.push(e.message));
+  const checkCustomizationPrompt=async()=>{
+    await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+    const prompt=page.locator('.chat-message.assistant:last-child .customization-prompt');
+    assert.match(await prompt.textContent(),/在这里定制旅行攻略/);
+    assert.match(await prompt.textContent(),/输入后发送/);
+    const visible=await prompt.evaluate(element=>{
+      const rect=element.getBoundingClientRect(),question=element.nextElementSibling.querySelector('p').getBoundingClientRect();
+      const toolbar=document.querySelector('#route-refresh-slot').getBoundingClientRect(),chat=element.closest('.chat-scroll').getBoundingClientRect();
+      return rect.top>=Math.max(toolbar.bottom,chat.top)&&rect.bottom<=Math.min(innerHeight,chat.bottom)&&question.bottom<=Math.min(innerHeight,chat.bottom);
+    });
+    assert.ok(visible,'The customization reminder and complete current question are visible together, below the toolbar and within the chat pane');
+    const savedProfile=await page.evaluate(()=>JSON.parse(localStorage.getItem('lvzang.v1')).profile);
+    assert.equal(await page.locator('.chat-message.assistant:last-child .message-content').textContent(),savedProfile.followUps[0].question,'The visible message asks the current question directly, without a repeated introduction displacing it');
+  };
   await page.goto(`http://127.0.0.1:${server.address().port}/travel.html`);
   await page.evaluate(raw=>localStorage.setItem('lvzang.v1',raw),JSON.stringify({...initialState(),profile,plan}));await page.reload();
   assert.equal(await page.locator('#route-refresh').count(),1,'A visible refresh action must exist in the shared toolbar');
@@ -50,19 +64,44 @@ try{
   assert.match(await page.locator('#route-current-destination').textContent(),/上一份方案.*广州/);
   assert.equal(await page.locator('#travel-brief').inputValue(),'尚未发送的新想法');assert.equal(await page.locator('#route-refresh').textContent(),'继续问答');
   assert.match(await page.locator('#map-title').textContent(),/西藏/,'The map follows the selected destination while the previous Guangzhou guide remains');
+  await checkCustomizationPrompt();
+  assert.match(await page.locator('#route-refresh-note').textContent(),/左侧问答区/);
   const beforeFailure=JSON.stringify(saved);
   await page.route('**/api/travel-chat/stream',route=>route.fulfill({contentType:'application/x-ndjson',body:JSON.stringify({type:'error',error:'测试问答启动失败'})+'\n'}));
   await page.locator('#route-destination').fill('杭州');await page.locator('#route-refresh').click();await page.waitForFunction(()=>!document.querySelector('#route-refresh').disabled);
   assert.equal(JSON.stringify(await page.evaluate(()=>JSON.parse(localStorage.getItem('lvzang.v1')))),beforeFailure,'Failed restart retains the prior interview and previous route');
   assert.match(await page.locator('#route-refresh-note').textContent(),/失败/);assert.equal(await page.locator('#travel-brief').inputValue(),'尚未发送的新想法');
+  assert.equal(await page.locator('.chat-message.assistant:last-child .customization-prompt').count(),0,'A failed restart shows the failure instead of inviting answers to a question that did not load');
   await page.unroute('**/api/travel-chat/stream');
   await page.locator('#route-refresh').click();await page.waitForFunction(()=>!document.querySelector('#route-refresh').disabled);
+  await checkCustomizationPrompt();
+  assert.match(await page.locator('#route-refresh-note').textContent(),/左侧问答区/);
   saved=await page.evaluate(()=>JSON.parse(localStorage.getItem('lvzang.v1')));assert.equal(saved.profile.fields.destination.value,'杭州');assert.equal(saved.profile.interview.step,1);assert.deepEqual(saved.profile.interview.answers,[]);
   await page.reload();assert.equal(await page.locator('#route-destination').inputValue(),'杭州');assert.match(await page.locator('#route-current-destination').textContent(),/上一份方案.*广州/);
   await page.setViewportSize({width:390,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
   await page.locator('#route-refresh').click();await page.waitForFunction(()=>!document.querySelector('#route-refresh').disabled);
+  await checkCustomizationPrompt();
+  assert.match(await page.locator('#route-refresh-note').textContent(),/下方问答区/);
   await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
   const questionPosition=await page.evaluate(()=>({top:document.querySelector('.chat-message.assistant:last-child').getBoundingClientRect().top,toolbarBottom:document.querySelector('#route-refresh-slot').getBoundingClientRect().bottom}));
   assert.ok(questionPosition.top>=questionPosition.toolbarBottom,`The current question starts below the sticky destination toolbar: ${JSON.stringify(questionPosition)}`);
-  assert.deepEqual(errors,[]);console.log('PASS: refresh is visible at four widths, starts a fresh interview, labels the prior plan, isolates context, preserves drafts and recovers from restart failure.');
+  await page.locator('#travel-brief').fill('尚未发送的新想法');
+  for(const width of [1146,565]){
+    await page.setViewportSize({width,height:704});
+    await page.locator('.canvas-panel').scrollIntoViewIfNeeded();
+    await page.locator('#route-refresh').click();await page.waitForFunction(()=>!document.querySelector('#route-refresh').disabled);
+    await checkCustomizationPrompt();
+    assert.equal(await page.locator('#travel-brief').inputValue(),'尚未发送的新想法','Revealing the left question does not overwrite an unsent draft');
+    if(width===1146&&process.env.TRAVEL_REFRESH_SCREENSHOT){
+      await page.screenshot({path:process.env.TRAVEL_REFRESH_SCREENSHOT});
+      await page.locator('#planner').screenshot({path:process.env.TRAVEL_REFRESH_SCREENSHOT.replace(/\.png$/,'-left.png')});
+    }
+  }
+  await page.locator('#travel-brief').fill('杭州，主要想去西湖');await page.locator('#travel-brief').press('Enter');
+  await page.waitForFunction(()=>!document.querySelector('#plan-button').disabled);
+  const answered=await page.evaluate(()=>JSON.parse(localStorage.getItem('lvzang.v1')).profile.interview);
+  assert.equal(answered.step,2,'Answering after the reminder still advances to the next question');
+  assert.equal(answered.answers[0].answer,'杭州，主要想去西湖');
+  assert.equal(await page.locator('.chat-message.assistant:last-child .customization-prompt').count(),0,'Later replies use ordinary chat and do not repeat the refresh reminder');
+  assert.deepEqual(errors,[]);console.log('PASS: refresh is visible at four widths, reveals customization instructions beside the current question on desktop and mobile, starts a fresh interview, labels the prior plan, isolates context, preserves drafts and recovers from restart failure.');
 }finally{await browser.close();await new Promise(resolve=>server.close(resolve));}

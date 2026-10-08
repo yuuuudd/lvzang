@@ -12,6 +12,9 @@
 .message-content{font-size:16px;line-height:1.85;white-space:pre-wrap}
 .message-content p{margin:0 0 .8em}.message-content p:last-child{margin-bottom:0}
 .chat-bubble .message-meta{font-size:11px;line-height:1.6}
+.customization-prompt{margin:-2px 0 14px;padding:0 0 12px;border-bottom:2px solid #b1d77b;color:var(--ink)}
+.customization-prompt strong{display:block;font-size:17px;line-height:1.6;color:var(--green)}
+.customization-prompt p{margin:5px 0 0;font-size:14px;line-height:1.7}
 .brief-wrap textarea{font-size:16px}
 .conversation-details{margin:12px 0 0}.conversation-details>summary{font-size:12px;color:var(--muted);cursor:pointer;padding:10px 0}
 .chat-heading{padding-bottom:12px}

@@ -22,8 +22,8 @@ const travelUiKey='lvzang.travel-ui.v1';let toolsPreference=null;
 const routeRefresh=installTravelRefresh(city=>{
   if(busy)return;
   focusAdvisor();
-  if(resetPrevious&&['active','ready','paused'].includes(state.profile.interview?.status)&&mapDestinationKey(city)===mapDestinationKey(state.profile.fields.destination.value))return requestInterview('resume');
-  runPlan(true,{advisorAction:'interview',interviewAction:'restart',destination:city,description:`我想去${city}，请重新开始这次旅行的16个问题。`});
+  if(resetPrevious&&['active','ready','paused'].includes(state.profile.interview?.status)&&mapDestinationKey(city)===mapDestinationKey(state.profile.fields.destination.value))return requestInterview('resume',{showCustomizationPrompt:true});
+  runPlan(true,{advisorAction:'interview',interviewAction:'restart',destination:city,description:`我想去${city}，请重新开始这次旅行的16个问题。`,showCustomizationPrompt:true});
 },city=>{mapDestination=city;renderDestinationMap();renderRouteState();});
 try{const savedUi=JSON.parse(localStorage.getItem(travelUiKey)||'null');if(typeof savedUi?.toolsCollapsed==='boolean')toolsPreference=savedUi.toolsCollapsed;}catch{}
 function setToolsCollapsed(collapsed,save=false){
@@ -149,10 +149,10 @@ function sendAdvisorPrompt(action,description=advisorPrompts[action]){
   // This internal marker keeps the draft intact; the server receives only the explicit natural-language request.
   return runPlan(true,{advisorAction:action,description});
 }
-function requestInterview(action){
+function requestInterview(action,options={}){
   if(busy||!interviewPrompts[action])return Promise.resolve(false);
   focusAdvisor();
-  return runPlan(true,{advisorAction:'interview',interviewAction:action,description:interviewPrompts[action]});
+  return runPlan(true,{advisorAction:'interview',interviewAction:action,description:interviewPrompts[action],...options});
 }
 $('advisor-continue').onclick=()=>focusAdvisor();
 $('advisor-preferences').onclick=()=>requestInterview(['active','ready','paused'].includes(state.profile.interview?.status)?'resume':'start');
@@ -248,7 +248,16 @@ async function runPlan(usePrevious=true,settingsSubmission=null){
   remember('user',body.description);
   const userMessage=chatMessage('user',body.description.trim()||`请推荐${body.destination||'一条旅行'}路线`,new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}));
   const reply=chatMessage('assistant','已收到，正在理解你的问题…',settingsSubmission?.advisorAction?'DeepSeek 旅行顾问':settingsSubmission?.itineraryEdit?'调整行程地点':settingsSubmission?'调整旅行条件':ai?'DeepSeek 对话':'本地规则示范');reply.classList.add('pending');
-  const revealReply=()=>{if(settingsSubmission?.advisorAction!=='refresh')revealChatMessage(reply);};
+  const revealReply=()=>{
+    const phase=state.profile.interview?.status;
+    if(settingsSubmission?.showCustomizationPrompt&&!reply.classList.contains('error')&&reply.dataset.messageStatus!=='partial'&&['active','ready','paused'].includes(phase)){
+      const instruction=phase==='ready'?'可以继续补充想法，或点击「交给 DeepSeek 规划」。':phase==='paused'?'点击「继续问答」，从当前问题接着聊。':'回答下面的问题，在下方输入后发送；不确定可以跳过。';
+      const prompt=document.createElement('div'),title=document.createElement('strong'),help=document.createElement('p');
+      prompt.className='customization-prompt';title.textContent='在这里定制旅行攻略';help.textContent=instruction;prompt.append(title,help);reply.querySelector('.chat-bubble').prepend(prompt);
+      routeRefresh.status(matchMedia('(max-width:767px)').matches?'已打开下方问答区，请从当前问题开始回答。':'请在左侧问答区回答问题，完成后生成新的旅行攻略。');
+    }
+    if(settingsSubmission?.advisorAction!=='refresh')revealChatMessage(reply);
+  };
   if(!settingsSubmission){$('travel-brief').value='';textRevision=false;}controller=new AbortController();startPhases(ai);canvasStatus('正在理解你的问题',true);status('正在结合对话理解你的要求。');$('route-state').textContent='保留当前方案';let result=null;
   try{
     const response=await fetch('/api/travel-chat/stream',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.any([controller.signal,AbortSignal.timeout(240000)])});
@@ -267,7 +276,11 @@ async function runPlan(usePrevious=true,settingsSubmission=null){
         if(settingsDraft){settingsDraft.destinationTouched=false;settingsDraft.destination='';}
       }
       const changed=JSON.stringify(acceptedProfile)!==JSON.stringify(beforeProfile);state.profile=acceptedProfile;
-      reply.dataset.messageKind=result.kind;reply.dataset.messageStatus=result.status||'';const rawReply=asking?composeClarification(result.assistantReply,Array.isArray(result.followUps)?result.followUps:acceptedProfile.followUps):result.assistantReply;const readableReply=advisorReplyText(rawReply,result.research);setMessage(reply,readableReply,partial?'本次规划未完成':asking?'补充旅行条件':result.mode==='ai'?'DeepSeek':'本地说明');appendResearchSources(reply.querySelector('.chat-bubble'),result.research);remember('assistant',readableReply);reply.classList.remove('pending');finishPhases(result);renderRequirements(state.profile);renderConstraints(before.input,null,false,state.profile,before.days?.[activeDay],asking||Boolean(state.profile.followUps.length));const saved=changed?persist():true,chatSaved=persistChat();canvasStatus(partial?'本次规划尚未完成 · 原方案已保留':asking?'需求已记录 · 等你补充条件':'已回答 · 当前行程保持不变',false,partial||!saved||!chatSaved);status(!saved||!chatSaved?'当前对话或需求尚未保存，请保留此页面。':partial?'本次规划尚未完成，请重试规划；原方案已保留。':asking?'直接回答就好，一次回答一个也可以。当前行程已保留。':'已回答你的问题。需要修改行程时，直接告诉我。');revealReply();return result.kind==='answer';
+      reply.dataset.messageKind=result.kind;reply.dataset.messageStatus=result.status||'';
+      // The refresh reminder already explains how to answer; put the actual question immediately below it.
+      const currentQuestion=settingsSubmission?.showCustomizationPrompt&&asking&&acceptedProfile.interview?.status==='active'?acceptedProfile.followUps[0]?.question:null;
+      const rawReply=currentQuestion||(asking?composeClarification(result.assistantReply,Array.isArray(result.followUps)?result.followUps:acceptedProfile.followUps):result.assistantReply),readableReply=advisorReplyText(rawReply,result.research);
+      setMessage(reply,readableReply,partial?'本次规划未完成':asking?'补充旅行条件':result.mode==='ai'?'DeepSeek':'本地说明');appendResearchSources(reply.querySelector('.chat-bubble'),result.research);remember('assistant',readableReply);reply.classList.remove('pending');finishPhases(result);renderRequirements(state.profile);renderConstraints(before.input,null,false,state.profile,before.days?.[activeDay],asking||Boolean(state.profile.followUps.length));const saved=changed?persist():true,chatSaved=persistChat();canvasStatus(partial?'本次规划尚未完成 · 原方案已保留':asking?'需求已记录 · 等你补充条件':'已回答 · 当前行程保持不变',false,partial||!saved||!chatSaved);status(!saved||!chatSaved?'当前对话或需求尚未保存，请保留此页面。':partial?'本次规划尚未完成，请重试规划；原方案已保留。':asking?'直接回答就好，一次回答一个也可以。当前行程已保留。':'已回答你的问题。需要修改行程时，直接告诉我。');revealReply();return result.kind==='answer';
     }
     if(result.status!=='ready')throw new Error(result.assumptions.join(' '));
     const acceptedProfile=result.profile?normalizeTravelProfile(result.profile):beforeProfile,guideFailed=result.guideUpdateStatus==='failed',quality=travelPlanStatus(result);
