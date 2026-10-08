@@ -104,7 +104,7 @@ export function createTravelMap() {
     const width = viewport.clientWidth, height = viewport.clientHeight;
     if (!width || !height) return;
     const zoom = Number(map.getZoom?.());
-    const presentation = Number.isFinite(zoom) && zoom < 14 ? 'overview' : Number.isFinite(zoom) && zoom < 16 ? 'nearby' : 'detail';
+    const presentation = Number.isFinite(zoom) && zoom < 10 ? 'overview' : Number.isFinite(zoom) && zoom < 16 ? 'nearby' : 'detail';
     const presentationChanged = surface.dataset.landmarkZoom !== presentation;
     surface.dataset.landmarkZoom = presentation;
     const scale = Number.isFinite(zoom) ? Math.min(1, 2 ** ((zoom - 17) / 7)).toFixed(4) : '1';

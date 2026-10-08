@@ -74,6 +74,18 @@ try{
   assert.equal(await page.locator('#map-place-name').textContent(),'广东省博物馆','Compact markers retain selection and accessible labels');
   await page.locator('#map-clear-selection').click();
 
+  let cityWidth=0;
+  for(const zoom of [10,12,13.5]){
+    await page.evaluate(zoom=>window.mock.maps.at(-1).setZoom(zoom),zoom);await settle();
+    const cityModel=(await markers()).find(item=>item.id==='gz-museum');
+    assert.ok(cityModel.modelVisible,`A city overview must already show the small building at zoom ${zoom}, without requiring street-level zoom`);
+    assert.ok(cityModel.width>cityWidth&&cityModel.width<closeMinus.width,'City buildings grow continuously while remaining smaller than close views');
+    cityWidth=cityModel.width;
+  }
+  await page.locator('.map-marker[data-stop="gz-museum"]').click();
+  assert.equal(await page.locator('#map-place-name').textContent(),'广东省博物馆','Small city-view buildings remain normally clickable');
+  await page.locator('#map-clear-selection').click();
+
   await page.evaluate(()=>window.mock.maps.at(-1).setZoom(14));await settle();
   const nearby=await markers();
   const nearbyModel=nearby.find(item=>item.id==='gz-museum');
