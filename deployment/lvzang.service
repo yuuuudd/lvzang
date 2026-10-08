@@ -1,0 +1,26 @@
+# Managed by lvzang deployment only
+[Unit]
+Description=Lvzang shared travel collection
+After=network-online.target
+StartLimitIntervalSec=3600
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/apps/lvzang
+ExecStart=/usr/bin/node --max-old-space-size=512 --env-file=.env server.js
+Restart=on-failure
+RestartSec=15
+MemoryMax=768M
+MemorySwapMax=128M
+CPUQuota=100%
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/ubuntu/apps/lvzang/output
+
+[Install]
+WantedBy=multi-user.target

@@ -17,6 +17,7 @@ export function mountAccountMenu(){
   const title=document.createElement('strong'),small=document.createElement('span');title.textContent=label;small.textContent=note;b.append(title,small);
   b.addEventListener('click',async()=>{panel.querySelectorAll('button').forEach(b=>b.disabled=true);try{
    if(!accountInfo.enabled){enterSpace(role);return;}
+   if(!accountInfo.testRoles&&!accountInfo.user){location.href='/portal.html';return;}
    const result=await accountApi(accountInfo.testRoles?'/api/auth/experience':'/api/auth/switch',{role});accountInfo.user=result.user;
    const callback=pendingIdentity;pendingIdentity=null;details.open=false;
    if(callback){summary.textContent=role==='operator'?'经营者':'我的回忆';callback(result.user);}
@@ -31,6 +32,7 @@ export function mountAccountMenu(){
 }
 export async function requestUserIdentity(){
  if(!accountInfo.enabled)return {id:'local',activeRole:'user'};
+ if(!accountInfo.testRoles&&!accountInfo.user){location.href='/portal.html';return null;}
  if(accountInfo.user?.activeRole==='user')return accountInfo.user;
  mountAccountMenu();const menu=document.querySelector('.identity-menu');menu.open=true;menu.querySelector('[data-identity-role=user]').focus();
  return new Promise(resolve=>{pendingIdentity=resolve;});

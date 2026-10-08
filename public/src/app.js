@@ -76,7 +76,7 @@ const historyStatus=(message,error=false)=>{$('history-status').textContent=mess
 const recordContext=()=>({productType:$('product-type').value,baseMode:$('figurine-base').value,productRulesVersion,style:$('style').value,photo:compressed(photo)||null,mode:$('mode').value,presetId:$('preset').value,creationFlow:$('creation-flow').value||'manual',...(activeTripMemory?{tripId:activeTripMemory.tripId,memoryId:activeTripMemory.memoryId}:{}),...(operatorCreationContext?{operatorId:operatorCreationContext.operatorId,operatorBriefVersion:operatorCreationContext.operatorBriefVersion,operatorSourcePhotoId:operatorCreationContext.operatorSourcePhotoId,operatorTitle:operatorCreationContext.operatorTitle}:{})});
 async function persistCurrent(){
   if(!currentRecord)return;
-  try{await saveHistory(currentRecord);if(currentRecord.operatorId)try{await attachOperatorArtwork(currentRecord);}catch(error){historyStatus('作品已保存，关联委托失败：'+error.message+'。可返回工作台从作品库选择。',true);}await refreshHistory();historyStatus('作品、制作参数与检查记录已保存到当前浏览器。');window.dispatchEvent?.(new Event('trip-artifact-saved'));}
+  try{await saveHistory(currentRecord);if(currentRecord.operatorId)try{await attachOperatorArtwork(currentRecord);}catch(error){historyStatus('作品已保存，关联订单失败：'+error.message+'。可返回工作台从作品库选择。',true);}await refreshHistory();historyStatus('作品、制作参数与检查记录已保存到当前浏览器。');window.dispatchEvent?.(new Event('trip-artifact-saved'));}
   catch{historyStatus('历史保存失败，可能是浏览器存储不可用或空间不足。当前作品仍可导出，请先保存图片和 STL。',true);}
 }
 async function refreshHistory(){
@@ -105,7 +105,7 @@ async function openHistory(id){
   const oldDepth=$('relief-depth').value,oldSmoothing=$('smoothness').value;
   try{
     const entry=await getHistory(id);if(!entry)throw new Error('这条历史记录已被删除，请刷新历史。');
-    if(operatorCreationContext&&(entry.operatorId!==operatorCreationContext.operatorId||entry.operatorBriefVersion!==operatorCreationContext.operatorBriefVersion||entry.input?.productType!==operatorCreationContext.productType||(entry.input?.baseMode||'none')!==(operatorCreationContext.baseMode||'none')))throw Error('这份历史不属于当前委托的产品和需求版本，请返回工作台重新选择来源。');
+    if(operatorCreationContext&&(entry.operatorId!==operatorCreationContext.operatorId||entry.operatorBriefVersion!==operatorCreationContext.operatorBriefVersion||entry.input?.productType!==operatorCreationContext.productType||(entry.input?.baseMode||'none')!==(operatorCreationContext.baseMode||'none')))throw Error('这份历史不属于当前订单的产品和需求版本，请返回工作台重新选择来源。');
     currentJob=null;$('resume').hidden=true;
     const restoredPhoto=entry.photo?await decodeImage(entry.photo):null;
     $('relief-depth').value=entry.depth;$('smoothness').value=entry.smoothing;
@@ -179,7 +179,7 @@ async function submitArtwork(next,input,settings,context,{revise=false,instructi
   const previous=revise&&!staleOldTown?(referenceJob?.concept?await decodeImage(referenceJob.concept):artwork):null;
   const task=await request('/api/artwork',{...input,presetId:context.presetId,design:next,style:context.style,image:context.photo,sculpture:context.mode==='tripo3d',colors:settings.colors,settings,...(revise?{instruction,...(previous?{reference:compressed(previous)}:{})}:{})});
   currentJob={id:task.taskId,design:next,input,context,settings};$('resume').hidden=false;
-  if(context.operatorId)try{await recordOperatorJob(currentJob);}catch(error){status('任务已提交，委托编号保存失败，请保留页面并继续领取：'+error.message,true);}
+  if(context.operatorId)try{await recordOperatorJob(currentJob);}catch(error){status('任务已提交，订单编号保存失败，请保留页面并继续领取：'+error.message,true);}
   if(controller.signal.aborted)throw new DOMException('Aborted','AbortError');
   await collect(currentJob,controller.signal);
 }
@@ -236,7 +236,7 @@ async function buildModel(job,signal){
   if(job.input.productType&&job.input.productType!==$('product-type').value)throw Error('产品类型已变化，请先生成并确认新参考图');
   const concept=await decodeImage(job.concept),task=await request('/api/model',{image:compressed(concept),settings,productType:job.input.productType,baseMode:job.input.baseMode});
   currentJob={...job,settings,id:task.taskId,kind:'model'};$('resume').hidden=false;$('build-reference').hidden=true;
-  if(job.context?.operatorId)try{await recordOperatorJob(currentJob);}catch(error){status('三维任务已提交，委托记录保存失败，请保留页面：'+error.message,true);}
+  if(job.context?.operatorId)try{await recordOperatorJob(currentJob);}catch(error){status('三维任务已提交，订单记录保存失败，请保留页面：'+error.message,true);}
   if(job.recordId)try{const saved=await getHistory(job.recordId);if(saved)await saveHistory({...saved,modelTaskId:task.taskId});}catch{historyStatus('三维任务编号未能保存，请保持页面打开并使用“继续取生成结果”。',true);}
   if(signal.aborted)throw new DOMException('Aborted','AbortError');
   await collectModel(currentJob,signal);
@@ -466,7 +466,7 @@ async function sample(){
 $('sample').addEventListener('click',sample);
 function showTripContext(){
   $('trip-create-context').hidden=!activeTripMemory;
-  if(activeTripMemory)$('trip-create-label').textContent=operatorCreationContext?`正在为委托“${activeTripMemory.title}”创作。参考图与三维结果保存后会关联回经营者工作台。`:`正在为“${activeTripMemory.title||'这段记忆'}”创作立体纪念物。参考图和三维作品会回到旅行合集。`;
+  if(activeTripMemory)$('trip-create-label').textContent=operatorCreationContext?`正在为订单“${activeTripMemory.title}”创作。参考图与三维结果保存后会关联回经营者工作台。`:`正在为“${activeTripMemory.title||'这段记忆'}”创作立体纪念物。参考图和三维作品会回到旅行合集。`;
 }
 window.addEventListener('trip-create-object',async event=>{
   if(controller||historyLoading||loadingPhoto)return status('请等待当前创作完成后再切换记忆点。',true);
@@ -480,7 +480,7 @@ window.addEventListener('trip-create-object',async event=>{
     for(const [id,value] of Object.entries({story:item.story||'',place:item.place||'',date:item.date||'',preset:'none',mode:'tripo3d','creation-flow':document.documentElement.classList.contains('simple-ui')?'auto':'manual',revision:''}))$(id).value=value;
     $('story').dispatchEvent(new Event('input'));
     showPhotoPreview(item.photo);$('photo-status').textContent='已使用此记忆点的来源照片。';
-    syncRefine();status(item.bounded?'创作页带入了300字内摘要及12字内地点名；完整需求保留在委托里，请核对创作内容。':item.story?'照片和这一刻的故事已带入。确认内容后生成参考图，再决定是否生成三维。':'照片已带入。可补充这一刻的故事，再生成参考图。');$('single-create').scrollIntoView({block:'start'});if(item.recordId)await openHistory(item.recordId);if(item.pendingJob){currentJob=item.pendingJob;$('resume').hidden=false;if(currentJob.kind==='model')$('build-reference').hidden=true;status('已恢复本委托任务编号，请点击“继续取生成结果”；不会重新提交生成。');}
+    syncRefine();status(item.bounded?'创作页带入了300字内摘要及12字内地点名；完整需求保留在订单里，请核对创作内容。':item.story?'照片和这一刻的故事已带入。确认内容后生成参考图，再决定是否生成三维。':'照片已带入。可补充这一刻的故事，再生成参考图。');$('single-create').scrollIntoView({block:'start'});if(item.recordId)await openHistory(item.recordId);if(item.pendingJob){currentJob=item.pendingJob;$('resume').hidden=false;if(currentJob.kind==='model')$('build-reference').hidden=true;status('已恢复本订单任务编号，请点击“继续取生成结果”；不会重新提交生成。');}
   }catch(error){status(error.message,true);}
 });
 window.addEventListener('trip-open-artwork',event=>openHistory(event.detail.id));
@@ -489,7 +489,7 @@ $('leave-trip').addEventListener('click',()=>{activeTripMemory=null;showTripCont
 $('export').disabled=true;$('save-image').disabled=true;
 fetch('/api/config').then(r=>r.json()).then(c=>{$('api-status').textContent=`DeepSeek ${c.configured?'已配置':'未配置'} · Tripo ${c.tripoConfigured?'已配置 · '+c.tripoModel:'未配置：请填写 .env 的 TRIPO_API_KEY'}`;}).catch(()=>$('api-status').textContent='无法读取接口状态，请刷新页面。');
 if(window.location?.search){const params=new URLSearchParams(window.location.search),token=params.get('resumeModel');if(token){params.delete('resumeModel');window.history.replaceState(null,'',window.location.pathname+(params.size?'?'+params:'')+window.location.hash);recoverModelTask(token).then(()=>$('resume').click()).catch(error=>status(error.message,true));}}
-if(window.location?.search){const operatorId=new URLSearchParams(window.location.search).get('operator');if(operatorId){loadOperatorCreation(operatorId).then(item=>{operatorCreationContext=item;if(production)document.querySelector('main').inert=false;window.dispatchEvent(new CustomEvent('trip-create-object',{detail:item}));$('style').value=item.style||'clay';$('creation-flow').value='manual';const link=document.createElement('a');link.className='secondary';link.href='/operator.html#commission/'+encodeURIComponent(operatorId)+'/make';link.textContent='返回委托工作台';$('single-create').prepend(link);$('return-trip').onclick=()=>{location.href=link.href;};$('leave-trip').hidden=true;}).catch(error=>{status(error.message,true);if(production){document.querySelector('main').inert=false;$('single-create').inert=true;}});}}
+if(window.location?.search){const operatorId=new URLSearchParams(window.location.search).get('operator');if(operatorId){loadOperatorCreation(operatorId).then(item=>{if(item.productionOrder){location.replace('/operator.html#commission/'+encodeURIComponent(operatorId)+'/make');return;}operatorCreationContext=item;if(production)document.querySelector('main').inert=false;window.dispatchEvent(new CustomEvent('trip-create-object',{detail:item}));$('style').value=item.style||'clay';$('creation-flow').value='manual';const link=document.createElement('a');link.className='secondary';link.href='/operator.html#commission/'+encodeURIComponent(operatorId)+'/make';link.textContent='返回订单工作台';$('single-create').prepend(link);$('return-trip').onclick=()=>{location.href=link.href;};$('leave-trip').hidden=true;}).catch(error=>{status(error.message,true);if(production){document.querySelector('main').inert=false;$('single-create').inert=true;}});}}
 
 function syncProduct(){
   const figurine=$('product-type').value==='figurine';$('figurine-base-field').hidden=!figurine;$('magnet-settings').hidden=figurine;

@@ -1,0 +1,12 @@
+import {cp,mkdir,readFile,writeFile,readdir} from 'node:fs/promises';
+import {resolve,join} from 'node:path';
+import {execFileSync} from 'node:child_process';
+const root=resolve('.'),stage=join(root,'artifacts','lvzang-release');
+await mkdir(stage,{recursive:true});
+for(const name of [...(await readdir(root)).filter(n=>n.endsWith('.js')),'package.json','package-lock.json','public','presets','prompts','deployment'])await cp(join(root,name),join(stage,name),{recursive:true});
+const env=await readFile(join(root,'.env'),'utf8');
+const keys=env.split(/\r?\n/).filter(line=>/^(DEEPSEEK_API_KEY|TRIPO_API_KEY|DEEPSEEK_MODEL|TRIPO_IMAGE_MODEL)=/.test(line));
+if(!keys.some(s=>s.startsWith('DEEPSEEK_API_KEY='))||!keys.some(s=>s.startsWith('TRIPO_API_KEY=')))throw Error('Missing generation configuration');
+await writeFile(join(stage,'.env'),[...keys,'PORT=4182','PUBLIC_ORIGIN=https://lvzang.gzaibuilders.cn','TEST_ROLES=false','SERVER_LIBRARY=true','ALLOW_REGISTRATION=false','NODE_ENV=production',''].join('\n'),{mode:0o600});
+execFileSync('tar',['-czf','../lvzang-release.tgz','.'],{cwd:stage,stdio:'inherit'});
+console.log('旅藏发布包已生成（包含私有运行配置，请勿分享）');

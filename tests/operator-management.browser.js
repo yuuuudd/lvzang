@@ -1,0 +1,53 @@
+import assert from 'node:assert/strict';
+import {chromium} from 'playwright';
+import {createApp} from '../server.js';
+import {mkdtemp,rm,mkdir,readFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join,resolve,sep} from 'node:path';
+
+const dir=await mkdtemp(join(tmpdir(),'operator-management-'));
+const server=createApp({accountsEnabled:true,serverLibrary:true,accountDir:dir,libraryDir:join(dir,'library')});
+await new Promise(r=>server.listen(0,'127.0.0.1',r));
+const base='http://127.0.0.1:'+server.address().port,browser=await chromium.launch({channel:'chrome',headless:true});
+await mkdir('artifacts/operator-management',{recursive:true});
+try{
+ const context=await browser.newContext({viewport:{width:1440,height:900}}),user=await browser.newContext();
+ const post=async(ctx,path,data)=>{const r=await ctx.request.post(base+path,{headers:{Origin:base},data});assert.ok(r.ok(),await r.text());return r.json();};
+ await post(context,'/api/auth/setup',{username:'studio',password:'safe-password',name:'经营者'});
+ await post(user,'/api/auth/register',{username:'visitor',password:'safe-password',name:'小林'});
+ const image='data:image/webp;base64,'+(await readFile('public/assets/keepsakes/memory-1.webp')).toString('base64');
+ const order=await post(user,'/api/orders',{title:'广州旅行订单',raw:'保留城市和人物',productType:'figurine',deliveryType:'image',photos:[{image}]});
+ const page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));page.setDefaultTimeout(10000);
+ await page.goto(base+'/operator.html');await page.locator('.list-row').first().waitFor();
+ assert.equal(await page.locator('[data-action=new]').count(),1);
+ await page.getByRole('button',{name:'新建订单'}).click();await page.locator('[name=title]').waitFor();
+ assert.equal(await page.locator('[name=title]').inputValue(),'新订单');
+ const id=new URL(page.url()).hash.split('/')[1];
+ await page.locator('[name=title]').fill('可删除的测试订单');
+ await page.getByRole('button',{name:'保存需求',exact:true}).click();await page.getByRole('heading',{name:'可删除的测试订单'}).waitFor();
+ await page.getByRole('button',{name:'方案预览',exact:true}).click();await page.locator('.preview-empty').waitFor();
+ assert.equal(await page.locator('.conversation-panel').count(),0);assert.equal(await page.locator('.order-overview').count(),1);
+ assert.equal(await page.locator('.journey-steps button').count(),0);
+ assert.doesNotMatch(await page.locator('#operator-root').textContent(),/委托/);
+ await page.screenshot({path:'artifacts/operator-management/local-desktop.png'});
+ for(const width of [1440,1366,1024,768,390]){await page.setViewportSize({width,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`overflow at ${width}`);}
+ await page.screenshot({path:'artifacts/operator-management/local-mobile.png',fullPage:true});
+ await page.setViewportSize({width:1440,height:900});
+ await page.getByText('管理订单',{exact:true}).click();page.once('dialog',d=>d.dismiss());await page.getByRole('button',{name:'删除订单',exact:true}).click();
+ assert.equal(await page.locator('.list-row.selected').count(),1);
+ page.once('dialog',d=>d.accept());await page.getByRole('button',{name:'删除订单',exact:true}).click();
+ await page.waitForFunction(()=>location.hash==='#list');assert.equal(await page.locator(`[data-open="${id}"]`).count(),0);
+ await page.reload();await page.locator('[name=orderView]').waitFor();assert.equal(await page.locator(`[data-open="${id}"]`).count(),0);
+ await page.selectOption('[name=orderView]','deleted');await page.locator(`[data-open="${id}"]`).click();await page.getByRole('button',{name:'恢复订单',exact:true}).click();
+ await page.waitForFunction(()=>location.hash==='#list');await page.selectOption('[name=orderView]','active');await page.locator(`[data-open="${id}"]`).click();await page.locator('.order-menu').waitFor();
+ await page.getByText('管理订单',{exact:true}).click();await page.getByRole('button',{name:'归档订单',exact:true}).click();await page.waitForFunction(()=>location.hash==='#list');
+ await page.selectOption('[name=orderView]','archived');await page.locator(`[data-open="${id}"]`).waitFor();
+ await page.selectOption('[name=orderView]','active');await page.locator(`[data-open="${order.id}"]`).click();await page.locator('[data-conversation]').waitFor();
+ await page.screenshot({path:'artifacts/operator-management/shared-desktop.png'});
+ await page.getByText('管理订单',{exact:true}).click();page.once('dialog',d=>d.accept());await page.getByRole('button',{name:'删除订单',exact:true}).click();await page.waitForFunction(()=>location.hash==='#list');
+ await page.reload();await page.locator('[name=orderView]').waitFor();assert.equal(await page.locator(`[data-open="${order.id}"]`).count(),0);
+ const customerOrder=await(await user.request.get(base+'/api/orders/'+order.id)).json();assert.equal(customerOrder.status,'submitted');assert.equal(customerOrder.photos.length,1);
+ await page.selectOption('[name=orderView]','deleted');await page.locator(`[data-open="${order.id}"]`).click();await page.getByRole('button',{name:'恢复订单',exact:true}).click();await page.waitForFunction(()=>location.hash==='#list');
+ await page.selectOption('[name=orderView]','active');await page.locator(`[data-open="${order.id}"]`).waitFor();
+ assert.deepEqual(errors,[]);console.log('PASS: one new-order entry, local/shared delete + reload + restore, cancellation, archive, preserved customer order and photos, responsive widths, no console errors.');
+}finally{await browser.close();await new Promise(r=>server.close(r));if(!resolve(dir).startsWith(resolve(tmpdir())+sep))throw Error('Unexpected test path');await rm(dir,{recursive:true,force:true});}

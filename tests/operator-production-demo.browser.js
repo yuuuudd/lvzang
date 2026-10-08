@@ -1,0 +1,58 @@
+import assert from 'node:assert/strict';
+import {chromium} from 'playwright';
+import {createApp} from '../server.js';
+import {mkdtemp,rm,readFile,mkdir} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join,resolve,sep} from 'node:path';
+import {makeMiniature} from '../public/src/travel-miniature.js';
+import {glbFromPreview} from '../public/src/mesh-glb-export.js';
+
+const dir=await mkdtemp(join(tmpdir(),'operator-demo-'));
+const server=createApp({accountsEnabled:true,serverLibrary:true,accountDir:dir,libraryDir:join(dir,'library')});
+await new Promise(r=>server.listen(0,'127.0.0.1',r));
+const base='http://127.0.0.1:'+server.address().port,browser=await chromium.launch({channel:'chrome',headless:true});
+try{
+ const op=await browser.newContext({viewport:{width:1440,height:900},acceptDownloads:true}),user=await browser.newContext();
+ const post=async(ctx,path,data)=>{const r=await ctx.request.post(base+path,{headers:{Origin:base},data});assert.ok(r.ok(),await r.text());return r.json();};
+ await post(op,'/api/auth/setup',{username:'studio',password:'safe-password',name:'经营者'});
+ await post(user,'/api/auth/register',{username:'visitor',password:'safe-password',name:'客户'});
+ const model=makeMiniature('gz'),glb=Buffer.from(await glbFromPreview({...model,originalColors:model.colors}).arrayBuffer());
+ const image='data:image/webp;base64,'+(await readFile('public/assets/keepsakes/memory-1.webp')).toString('base64');
+ let order=await post(user,'/api/orders',{title:'城市纪念摆件',raw:'按原模型制作',productType:'figurine',deliveryType:'physical',photos:[{image}],inputReference:{image},inputModel:{base64:glb.toString('base64')}});
+ order=await post(op,'/api/orders/'+order.id,{revision:order.revision,action:'accept'});
+ const page=await op.newPage(),errors=[];page.setDefaultTimeout(15000);page.on('pageerror',e=>errors.push(e.message));
+ await page.route('**/api/operator-preview',r=>r.abort());
+ await page.goto(base+'/operator.html#commission/'+order.id+'/make');
+ await page.getByRole('button',{name:'演示后续流程',exact:true}).waitFor();
+ // Step navigation must not depend on preview conversion succeeding.
+ await page.getByRole('button',{name:'下一步：打印与验收',exact:true}).click();
+ await page.waitForURL('**/review');await page.locator('[name=physicalEvidence]').waitFor();
+ await page.getByRole('button',{name:'演示后续流程',exact:true}).click();
+ const before=await(await op.request.get(base+'/api/orders/'+order.id)).json();
+ const writes=[];page.on('request',r=>{if(r.method()==='POST'&&/\/api\/orders\//.test(r.url()))writes.push(r.url());});
+ await page.route('**/api/**',r=>r.abort());
+ const demo=page.getByRole('dialog');await demo.waitFor();
+ await demo.getByRole('button',{name:'模拟导出，进入打印与验收'}).click();
+ await demo.getByRole('heading',{name:'打印与验收',exact:true}).waitFor();
+ await mkdir('artifacts/operator-demo',{recursive:true});
+ await page.screenshot({path:'artifacts/operator-demo/review.png'});
+ await demo.getByRole('button',{name:'模拟验收通过，进入交付'}).click();
+ await demo.getByRole('heading',{name:'客户确认与交付',exact:true}).waitFor();
+ await demo.getByRole('button',{name:'模拟客户确认并完成交付'}).click();
+ await demo.getByRole('heading',{name:'交付完成',exact:true}).waitFor();
+ await page.screenshot({path:'artifacts/operator-demo/delivered.png'});
+ await page.setViewportSize({width:390,height:844});
+ assert.ok(await demo.evaluate(el=>el.scrollWidth<=el.clientWidth));
+ await page.screenshot({path:'artifacts/operator-demo/mobile.png',fullPage:true});
+ await demo.getByRole('button',{name:'重新演示'}).click();
+ await demo.getByRole('heading',{name:'尺寸与报价',exact:true}).waitFor();
+ await page.keyboard.press('Escape');assert.equal(await page.getByRole('dialog').count(),0);
+ const after=await(await op.request.get(base+'/api/orders/'+order.id)).json();
+ assert.deepEqual(after,before,'demo cannot mutate workflow, customer confirmation, exports, messages or physical evidence');assert.deepEqual(writes,[]);
+ await page.unroute('**/api/**');await page.unroute('**/api/operator-preview');
+ await page.setViewportSize({width:1440,height:900});
+ await page.getByRole('button',{name:'尺寸与报价',exact:true}).click();
+ const download=page.waitForEvent('download');await page.getByRole('button',{name:'导出 STL 打印文件',exact:true}).click();
+ assert.match((await download).suggestedFilename(),/\.stl$/);await page.waitForURL('**/review');
+ assert.deepEqual(errors,[]);console.log('PASS: third-step navigation despite preview failure; offline demo through fourth step, reset/exit/mobile; zero order mutations; real STL export advances to review.');
+}finally{await browser.close();await new Promise(r=>server.close(r));if(!resolve(dir).startsWith(resolve(tmpdir())+sep))throw Error('Unexpected test path');await rm(dir,{recursive:true,force:true});}

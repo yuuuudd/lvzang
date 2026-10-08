@@ -1,0 +1,16 @@
+import {readFile,mkdir} from 'node:fs/promises';
+import {chromium} from 'playwright';
+const text=await readFile('artifacts/lvzang-login.txt','utf8'),username=text.match(/账号：([^\r\n]+)/)?.[1],password=text.match(/密码：([^\r\n]+)/)?.[1],base='https://lvzang.gzaibuilders.cn';
+const browser=await chromium.launch({channel:'chrome',headless:true}),context=await browser.newContext(),page=await context.newPage({viewport:{width:1440,height:1000}});
+const errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(m.type()==='error')errors.push(m.text().slice(0,500));});
+const call=async(method,...args)=>{const start=Date.now(),response=await context.request.post(base+'/api/library',{headers:{Origin:base},data:{method,args}});const data=await response.json();return {value:data.value,status:response.status(),ms:Date.now()-start};};
+try{
+ const auth=await context.request.post(base+'/api/auth/login',{headers:{Origin:base},data:{username,password,role:'user'}});if(!auth.ok())throw Error('Login diagnostic failed');
+ const works=await call('list');console.log(JSON.stringify({status:works.status,works:works.value?.map(k=>({id:k.id,title:k.title,tripId:k.tripId,generationId:k.generationId,assetIndex:k.assetIndex,shell:k.collectionShell,modelRef:k.modelRef}))}));
+ const jobs=await call('getMeta','generation-jobs');console.log(JSON.stringify({jobs:jobs.value}));
+ for(const id of jobs.value||[]){const r=await context.request.get(base+'/api/collection-jobs/'+id);const j=await r.json();console.log(JSON.stringify({id,http:r.status(),status:j.status,error:j.error,cover:j.cover,coverStatus:j.coverStatus,items:j.items?.map(i=>({title:i.title,status:i.status,error:i.error})),assets:j.assets?.map(a=>({title:a.title,index:a.index,preview:a.preview,model:a.model}))}));}
+ if(!process.argv.includes('--after'))for(const k of works.value||[]){if(!k.generationId||k.collectionShell)continue;const result=await call('getMeta',`generated-asset:${k.generationId}:${k.assetIndex}`),a=result.value;console.log(JSON.stringify({asset:k.id,status:result.status,ms:result.ms,exists:!!a,glbSize:a?.glb?.data?.length,referenceSize:a?.reference?.data?.length,previewVersion:a?.preview?.previewVersion,meshSize:a?.preview?.mesh?.length,keys:a?Object.keys(a):[]}));}
+ const first=works.value?.find(k=>!k.collectionShell);const route=first?'#world/trip/'+encodeURIComponent(first.tripId||first.id):'#world/canvas',start=Date.now();await page.goto(base+'/collection.html'+route);
+ if(process.argv.includes('--after'))await page.waitForFunction(()=>document.querySelectorAll('.exhibit-model[data-preview-mode="3d"]').length===3,{},{timeout:45000});else await page.waitForTimeout(12000);
+ await mkdir('artifacts/lvzang-display',{recursive:true});await page.screenshot({path:'artifacts/lvzang-display/'+(process.argv.includes('--after')?'after':'before')+'.png',fullPage:true});console.log(JSON.stringify({url:page.url(),loadMs:Date.now()-start,errors,statuses:await page.locator('.preview-status').allTextContents(),renderModes:await page.locator('[data-model]').evaluateAll(nodes=>nodes.map(n=>({mode:n.dataset.previewMode,html:n.innerHTML.slice(0,200)})))}));
+}finally{await context.request.post(base+'/api/auth/logout',{headers:{Origin:base},data:{}});await browser.close();}

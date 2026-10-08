@@ -20,9 +20,11 @@ export async function openOperatorStore(){
    }
    const saved=await accountApi('/api/orders/'+c.serverOrderId+'/commission',{commission:next});await readOrder(c.serverOrderId);return saved;
   },
+  async listMeta(prefix){const meta=await base.listMeta(prefix);await readOrders();const entries=orders.map(o=>({id:'operator-commission:'+o.id,value:o.commission})).filter(m=>m.id.startsWith(prefix));return [...meta.filter(m=>!entries.some(n=>n.id===m.id)),...entries];},
   async dump(){const data=await base.dump();await readOrders();const entries=orders.map(o=>({id:'operator-commission:'+o.id,value:o.commission}));return {...data,meta:[...data.meta.filter(m=>!entries.some(n=>n.id===m.id)),...entries]};},
   async useSubmittedWork(id){const o=await readOrder(id),reference=o.inputs.find(f=>f.kind==='reference'),model=o.inputs.find(f=>f.kind==='model');if(!reference)throw Error('用户未提交作品参考图');const workId='submitted-work-'+id,gen='submitted-input-'+id,photos=await Promise.all(o.photos.map(async f=>({id:f.id,blob:await blob(f)}))),old=await base.get(workId),memories=photos.map(p=>({id:'input-memory-'+p.id,keepsakeId:workId,authorId:'me',date:o.commission.date||'',placeName:o.commission.place||'',story:o.raw.slice(0,1000),photoIds:[p.id]}));const kept={id:workId,schemaVersion:1,title:o.title.slice(0,80),city:(o.commission.place||'待确认地点').slice(0,40),kind:'miniature',scope:'personal',participants:[{id:'me',name:'我'}],modelRef:'generated:'+gen+':0',generationId:gen,assetIndex:0,memoryIds:memories.map(m=>m.id),sourcePhotoId:photos[0]?.id,revision:old?.keepsake.revision||0,createdAt:Date.now(),updatedAt:Date.now()};await base.setMeta('generated-asset:'+gen+':0',{glb:await blob(model),reference:await blob(reference),preview:null,report:{checks:[],note:'用户提交的已有作品；实体打印结构尚需人工核对'},exportable:false});await base.save({keepsake:kept,memories,photos});return attachSelection(o.commission,{id:workId,revision:kept.revision});},
   async listRemoteOrders(){return readOrders();},
+  async sendMessage(id,body){return accountApi('/api/orders/'+id+'/messages',body);},
   async remoteAction(id,body){const result=await accountApi('/api/orders/'+id,body);await readOrders();return result;}
  };
 }
