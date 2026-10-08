@@ -16,6 +16,7 @@ import { availablePresets, selectPreset, readEventImages } from './event-preset.
 import { makeCutout, segmentLocally } from './trip-cutout.js';
 import { paintingMemories, paintingRegion, validBox, validPoint } from './trip-painting.js';
 import { planTravel, chatTravel } from './travel-agent.js';
+import { createAmapService } from './amap-service.js';
 import { summarizeOperator } from './operator-agent.js';
 import {customizeAsset} from './customization-agent.js';
 import {createCollectionJobs} from './collection-jobs.js';
@@ -31,6 +32,8 @@ const storySystem=`你是文旅立体纪念品的故事策划与雕塑美术指�
 只输出 JSON，字段为 caption:1到8字作品标题、reason:160字内设计意图、subjectCount:可选的1到4人物数、brief:{summary:180字内的故事理解,elements:1到8项关键要素字符串每项80字内,composition:240字内的具体动作与空间安排,imagePrompt:600字内的完整中文生图提示词,label:始终为空字符串,decisions:下方四项记忆决策}。不要输出 theme、motif、layout、subjectScale、photoStyle、threshold 等旧版几何参数，它们由本地规则决定。地点栏有值时，imagePrompt 必须写出完全相同的地点名，不得替换成别处；地点栏为空、无活动预设且故事和照片也没有可靠地点时，用不指向真实城市或地标的概括场景，place 决策说明地点未指定。imagePrompt 必须完整展开有依据的关系、动作、服饰道具、层次和细节取舍，包含本轮修改要求，不能只复述故事或写抽象形容词；不要把独立文字摘要当作图片内容。\n${memoryRules}`;
 const files=new Set(['index.html','simple.html','style.css','simple.css','src/simple-ui.js','assets/simple-trip-preview.png','assets/simple-object-preview.png','src/app.js','src/trips.js','src/trip-batch.js','src/collage.js','src/design.js','src/model.js','src/artwork.js','src/preview.js','src/relief.js','src/history.js','src/print-settings.js']);
 for(const name of ['src/library-wire.js','src/server-keepsake-store.js'])files.add(name);
+for(const name of ['src/travel-refresh.js','travel-refresh.css','src/travel-guide-layout.js','src/travel-guide-layout.css'])files.add(name);
+files.add('src/travel-landmark-geometry.js');
 for(const name of ['production.html','production.css','operator.html','operator.css','src/operator.js','src/operator-domain.js','src/operator-bridge.js','src/operator-preview.js'])files.add(name);
 for(const name of ['portal.html','orders.html','accounts.css','src/account-client.js','src/account-ui.js','src/portal.js','src/orders.js','src/order-client.js','src/order-conversation.js'])files.add(name);
 for(const name of ['home.html','home.css','src/home.js','src/template-catalog.js','src/identity-menu.js','assets/people-garden.png'])files.add(name);
@@ -43,6 +46,7 @@ files.add('src/product-rules.js');files.add('src/three-mf.js');files.add('src/ff
 for(const name of ['travel.html','travel.css','src/travel.js','src/travel-catalog.js','src/travel-domain.js','src/travel-state.js','src/souvenir-mesh.js','assets/travel-world.webp'])files.add(name);
 for(const name of ['travel-workspace.css','src/travel-workspace.js','assets/guangzhou-guide.webp'])files.add(name);
 for(const name of ['assets/travel-canvas-bg.webp','assets/travel-gallery-bg.webp','src/travel-cover.js','src/mesh-glb-export.js','src/travel-gallery.js','travel-gallery.css'])files.add(name);
+for(const name of ['src/travel-profile.js','src/travel-schedule.js','travel-map-explorer.css','src/travel-map.js','src/travel-map-data.js','src/travel-map-selection.js','src/travel-map-journey.js','src/travel-map-landmarks.js','src/travel-map-layout.js','src/travel-map-exploration.js','src/travel-map-query.js','src/travel-map-location.js','src/travel-itinerary-edit.js','src/travel-guide-view.js','travel-advisor.css'])files.add(name);
 for(const name of ['mountains','arrow-up-right','note-pencil','sparkle','paper-plane-tilt','paperclip','check-circle','hand','frame-corners','arrow-counter-clockwise','map-pin','arrows-clockwise','path','clock','coins','heart','book-open','minus','plus','x','robot','user','lock-key','check','circle-notch'])files.add('assets/icons/'+name+'.svg');
 
 function validateImage(image) {
@@ -72,8 +76,9 @@ function parseDeepSeekJson(content){
   }
 }
 
-export function createApp({key=process.env.DEEPSEEK_API_KEY||'',model=process.env.DEEPSEEK_MODEL||'deepseek-flash',segmentImage=segmentLocally,tripoKey=process.env.TRIPO_API_KEY||'',tripoModel=process.env.TRIPO_IMAGE_MODEL||'chat_image_2.5_sunburst',developerBatch3D=process.env.DEVELOPER_BATCH_3D==='true',vercel=process.env.VERCEL==='1',publicOrigin=process.env.PUBLIC_ORIGIN||'',eventCode=process.env.EVENT_CODE||'',fetchImpl=fetch,loadEventImages=readEventImages,build=buildMagnetModel,collectionDir=fileURLToPath(new URL('./output/collections/',import.meta.url)),collectionServices,collectionPollMs=2500,accountsEnabled=false,testRoles=false,accountDir=fileURLToPath(new URL('./output/accounts/',import.meta.url)),serverLibrary=false,libraryDir=fileURLToPath(new URL('./output/library/',import.meta.url))}={}) {
+export function createApp({key=process.env.DEEPSEEK_API_KEY||'',model=process.env.DEEPSEEK_MODEL||'deepseek-flash',segmentImage=segmentLocally,tripoKey=process.env.TRIPO_API_KEY||'',tripoModel=process.env.TRIPO_IMAGE_MODEL||'chat_image_2.5_sunburst',amapJsKey=process.env.AMAP_JS_API_KEY||'',amapSecurityJsCode=process.env.AMAP_SECURITY_JS_CODE||'',developerBatch3D=process.env.DEVELOPER_BATCH_3D==='true',vercel=process.env.VERCEL==='1',publicOrigin=process.env.PUBLIC_ORIGIN||'',eventCode=process.env.EVENT_CODE||'',fetchImpl=fetch,researchFetchImpl=fetch,loadEventImages=readEventImages,build=buildMagnetModel,collectionDir=fileURLToPath(new URL('./output/collections/',import.meta.url)),collectionServices,collectionPollMs=2500,accountsEnabled=false,testRoles=false,advisorEnabled=true,serverLibrary=false,libraryDir=fileURLToPath(new URL('./output/library/',import.meta.url)),accountDir=fileURLToPath(new URL('./output/accounts/',import.meta.url))}={}) {
   let library;const getLibrary=()=>library??=createServerLibrary(libraryDir);
+  const amapService=createAmapService({key:amapJsKey,securityJsCode:amapSecurityJsCode,fetchImpl});
   let accountWorkspace;const workspace=()=>accountWorkspace??=createAccountWorkspace(accountDir);const internalToken=randomBytes(32).toString('hex'),loginAttempts=new Map();
   // ponytail: recover only recent tasks from this one restart; use durable storage if routine restarts need resume.
   const recover=name=>new Map((process.env[name]||'').split(',').filter(id=>/^[a-zA-Z0-9_-]{1,100}$/.test(id)).map(id=>[id,{created:Date.now()}]));
@@ -126,6 +131,15 @@ export function createApp({key=process.env.DEEPSEEK_API_KEY||'',model=process.en
     if(!allowed)return json(403,{error:'访问地址不受支持'});
     const origin=publicHost?configuredOrigin.origin:vercel?`https://${host}`:`http://${host}`;
     const url=new URL(req.url,`http://${req.headers.host}`),route=url.pathname;
+    // Public map browsing does not require an account; the service still enforces
+    // its exact GET/path allowlist and keeps the security code server-side.
+    if(route==='/api/map/config'||route==='/_AMapService'||route.startsWith('/_AMapService/')){
+      if(vercel&&eventCode){
+        const cookie=req.headers.cookie?.split(';').map(part=>part.trim()).find(part=>part.startsWith('shiguang_event='))?.slice('shiguang_event='.length);
+        if(typeof cookie!=='string'||Buffer.byteLength(cookie)!==Buffer.byteLength(eventCode)||!timingSafeEqual(Buffer.from(cookie),Buffer.from(eventCode)))return json(403,{error:'请扫描现场二维码进入体验'});
+      }
+      if(await amapService.handleRequest(req,res,url))return;
+    }
     const readAccountBody=async(limit=6000)=>{const chunks=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>limit)throw Error('请求过大');chunks.push(chunk);}try{return JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{throw Error('请求格式无效');}};
     const sessionToken=req.headers.cookie?.split(';').map(s=>s.trim()).find(s=>s.startsWith('lvzang_session='))?.slice(15)||'';
     if(route==='/api/auth/me'&&!accountsEnabled)return json(200,{enabled:false,user:null,setupNeeded:false,testRoles:false});
@@ -219,9 +233,9 @@ export function createApp({key=process.env.DEEPSEEK_API_KEY||'',model=process.en
         res.writeHead(200,{'Content-Type':'application/x-ndjson; charset=utf-8','Cache-Control':'no-store','X-Accel-Buffering':'no'});res.flushHeaders();
         const controller=new AbortController(),cancel=()=>controller.abort();res.once('close',cancel);
         const send=event=>{if(!res.destroyed&&!controller.signal.aborted)res.write(JSON.stringify(event)+'\n');};
-        try{const options={key,model,fetchImpl,onProgress:send,signal:controller.signal};send(route.includes('/travel-chat/')?{type:'result',response:await chatTravel(body,options)}:{type:'result',plan:await planTravel(body,options)});}catch(error){send({type:'error',error:error.name==='TimeoutError'?'策划超时，原方案已保留，请重试。':error.message});}finally{res.off('close',cancel);if(!res.destroyed)res.end();}return;
+        try{const options={key,model,fetchImpl,researchFetchImpl,advisorEnabled,onProgress:send,signal:controller.signal};send(route.includes('/travel-chat/')?{type:'result',response:await chatTravel(body,options)}:{type:'result',plan:await planTravel(body,options)});}catch(error){send({type:'error',error:error.name==='TimeoutError'?'策划超时，原方案已保留，请重试。':error.message});}finally{res.off('close',cancel);if(!res.destroyed)res.end();}return;
       }
-      try{return json(200,await planTravel(body,{key,model,fetchImpl}));}catch(error){return json(/格式|过长|最多|时长/.test(error.message)?400:502,{error:error.name==='TimeoutError'?'策划超时，原方案已保留，请重试。':error.message});}
+      try{return json(200,await planTravel(body,{key,model,fetchImpl,researchFetchImpl,advisorEnabled}));}catch(error){return json(/格式|过长|最多|时长/.test(error.message)?400:502,{error:error.name==='TimeoutError'?'策划超时，原方案已保留，请重试。':error.message});}
     }
     if(req.method==='POST'&&route==='/api/travel-import'){
       if(req.headers.origin!==origin)return json(403,{error:'请从页面导入截图'});
@@ -519,7 +533,10 @@ export function createApp({key=process.env.DEEPSEEK_API_KEY||'',model=process.en
       const simple=name==='simple.html';
       const body=await readFile(fileURLToPath(new URL('./public/'+(simple?'index.html':name),import.meta.url)));
       const ext=name.slice(name.lastIndexOf('.'));
-      res.writeHead(200,{'Content-Type':types[ext],'Cache-Control':'no-cache','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"});let content=simple?body.toString('utf8').replace('<html lang="zh-CN">','<html lang="zh-CN" class="simple-ui">'):body;if(accountsEnabled&&ext==='.html'&&name!=='portal.html')content=content.toString('utf8').replace('</head>','<link rel="stylesheet" href="/accounts.css"><script type="module" src="/src/account-ui.js"></script></head>');res.end(content);
+      // The official AMap 2.0 bundle evaluates generated code (confirmed in the live SDK).
+      // Keep its required eval permission confined to the travel page.
+      const csp=name==='travel.html'?"default-src 'self'; img-src 'self' data: blob: https://*.amap.com https://*.autonavi.com; media-src 'self' blob:; connect-src 'self' https://*.amap.com https://*.autonavi.com; script-src 'self' 'unsafe-eval' https://webapi.amap.com https://jsapi-service.amap.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; frame-ancestors 'none'; base-uri 'none'; form-action 'self'":"default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
+      res.writeHead(200,{'Content-Type':types[ext],'Cache-Control':'no-cache','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','Content-Security-Policy':csp});let content=simple?body.toString('utf8').replace('<html lang="zh-CN">','<html lang="zh-CN" class="simple-ui">'):body;if(accountsEnabled&&ext==='.html'&&name!=='portal.html')content=content.toString('utf8').replace('</head>','<link rel="stylesheet" href="/accounts.css"><script type="module" src="/src/account-ui.js"></script></head>');res.end(content);
     }catch{json(404,{error:'页面不存在'});}
   });
   server.resumeCollections=getCollectionJobs;

@@ -1,12 +1,20 @@
-> **统一登录与共享订单（2026-10-06）**：本机入口 `http://localhost:4181/portal.html`。首次创建工作室账号获得用户/经营者权限；普通注册仅获得用户权限。用户从个人作品或“我的订单”提交需求，经营者工作台自动接收，制作与审核后的结果同步回用户确认，再记录交付。账号、会话、订单和提交文件保存在服务端 `output/accounts/`；个人收藏按账号隔离保存在浏览器。见 [双端登录与订单验证](docs/accounts-orders-verification.md)。公网使用需部署可访问且持久存储的服务；本版不新增支付或物流。
+> **团队统一版本（2026-10-08）**：公网入口 [旅藏](https://lvzang.gzaibuilders.cn/portal.html)，团队使用现有共享账号登录。GitHub `main` 合并旅行规划、高德真实地图、服务器作品库、3D 定制和经营者订单管理；账号、作品和订单继续保存在腾讯云，密钥不进仓库。开发者先 `git pull --ff-only origin main`，复制 `.env.example` 为 `.env` 并填写自己的配置；运行 `npm ci`、`npm start`。合并与验证说明见 [团队同步记录](docs/team-integration-2026-10-08.md)。本机演示与公网共享账号模式见下文。
+
+> **完整系统同步（2026-10-07）**：已整合队友分支 `codex/travel-magnet-demo` 的 `2216588`，本机首页为 `http://localhost:4180/`。主导航是“去旅行 / 留回忆”，本地演示可从“选择身份”进入用户或经营者；此演示身份模式无需账号密码。正常账号接口与服务端订单权限仍保留，账号、会话、订单和提交文件位于 `output/accounts/`。历史账号版验证见 [双端登录与订单验证](docs/accounts-orders-verification.md)，当前入口见 [页面与跳转](docs/navigation.md)。
 
 > **经营者工作台（2026-10-06）**：`/operator.html` 已接入委托、需求整理、单件创作往返、审核、客户预览、交付包、费用与反馈。个人合集/作品可发起委托，旅行页也有入口。见 [模块职责与跳转设计](docs/superpowers/specs/2026-10-06-operator-workspace-design.md) 和 [实现与验证](docs/operator-verification.md)。以下原本机委托机制仍用于手动代录；用户提交订单现在以服务端数据为准。
 
-> **队友交接入口（2026-10-05）**：先阅读 [handoff/00-先读我.md](handoff/00-先读我.md)。私有协作仓库：[yuuuudd/lvzang](https://github.com/yuuuudd/lvzang)。本次目标、两人分工、接口和GitHub协作都在 handoff/；下文保留原照片创作系统说明。
+> **队友交接入口（2026-10-05）**：先阅读 [handoff/00-先读我.md](handoff/00-先读我.md)。协作仓库：[yuuuudd/lvzang](https://github.com/yuuuudd/lvzang)。本次目标、两人分工、接口和GitHub协作都在 handoff/；下文保留原照片创作系统说明。
 
 # 拾光 · 可交互的旅行回忆画与立体纪念物
 
-新增 **旅藏文旅体验**：打开 `/travel.html`，从可选攻略与个人需求出发，规划路线、解锁可旋转的 3D 纪念品、分享旅行展柜，并在本机商家工作台管理主题活动与定制报价。真实多 Agent 协作使用现有 DeepSeek 配置；本地示范不调用 AI。完整链路、比赛演示与边界见 [旅藏演示说明](docs/travel-demo.md)。原有创作入口保留。
+**旅藏文旅体验**：打开 `/travel.html` 策划路线；`/collection.html` 整理照片、故事与立体回忆；`/orders.html` 提交定制需求，经营者在 `/operator.html` 接收并进入独立制作、审核与交付流程。旅行对话使用现有 DeepSeek 配置；本地示范不调用 AI。旧版旅行演示与边界见 [旅藏演示说明](docs/travel-demo.md)。原照片创作系统仍可通过 `/index.html` 打开。
+
+**持续旅行顾问**：AI 模式由 DeepSeek 分轮询问同行人、预算、必去与避开、热门或小众、兴趣、饮食忌口、住宿与出发区域、交通和日期，每轮最多三项。它可调用公开网页搜索与正文读取工具，按实际来源选择城市内地点，不受预制纪念品目录限制；攻略补充每站玩法、亮点、餐饮、交通、预约和雨天备选。搜索摘要、已读取正文和访问受限分别显示。普通追问保留路线，明确修改继续沿用之前条件。需求区仍支持 1–7 天、每天 1–12 小时（半小时步长）与三档强度。使用例子、数据范围与限制见 [定制路线说明](docs/travel-understanding.md)。
+
+**真实地图配置**：高德 JS API 2.0 使用独立的 `AMAP_JS_API_KEY` 和 `AMAP_SECURITY_JS_CODE`。景点通过高德城市内 POI 搜索确认位置，步行或驾车路线使用高德路段数据；重名地点需要确认。没有配置时页面显示待配置状态，插画导览为可选示意视图。申请、配置与验收步骤见 [高德地图配置](docs/amap-setup.md)。
+
+**立体地标与路程比较**：高德 3D 地图提供“招牌地标 / 详细探索 / 只看行程”密度及地标、购物、文化、公园分类。广州精选池扩至 26 处，包括天环、正佳、天河城和太古汇；目录并非全城全集，可用高德地点搜索补充。详细模式使用贴近真实坐标的紧凑标记。点击“从我的位置出发”后，再选景点即可比较当前位置到景点的步行或驾车路程；定位只在点击时请求，精确坐标不写入本地存档。也支持手选两地比较。浏览、点击建筑和路线比较不改变行程，明确点击“加入行程”或“移出行程”才更新；行程卡同样可移除。组件说明见 [地图扩展说明](docs/travel-map-explorer.surface.md)。
 
 填写旅行故事并选择 2–9 张照片后，点击一次“生成旅行回忆画”：Agent 为每张照片挑选有画面依据的人、物或场景，本机 SAM 抠出元素，Tripo GPT Image 2.5 生成完整横幅插画，DeepSeek 对照导图定位画中元素，本机 SAM 自动生成并复核点击区域。点击画中元素可查看原照片、这一刻的故事与纪念物；定位不准时仍可手动修正。原有单件创作入口和历史作品保留。
 
@@ -40,7 +48,7 @@
 需要 Node.js 24.5+，首次运行先执行 `npm install`。
 
 1. 在本地 `.env` 填写 `DEEPSEEK_API_KEY` 和 `TRIPO_API_KEY`，不要提交密钥。旅行回忆画的策展与成图定位使用 DeepSeek，整体生图和立体制作使用 Tripo；本机抠图不需要额外密钥。示例见 `.env.example`。
-2. 运行 `npm start`，打开 http://localhost:4173 使用专业版，或打开 http://localhost:4173/simple.html 使用简洁版；页顶可直接切换版本。两版共用生成流程与当前浏览器的作品记录，简洁版默认以陶瓷风格自动生成三维。修改密钥后重启服务。
+2. 运行 `npm start`，打开 http://localhost:4173 查看首页；原照片创作专业版位于 `/index.html`，简洁版位于 `/simple.html`。两版共用生成流程与当前浏览器的作品记录，简洁版默认以陶瓷风格自动生成三维。本机常驻服务可用 `./start-local.ps1` 启动在 4180 端口。修改密钥后重启服务。
 3. `npm test` 运行自动检查。
 
 简洁版标题使用 [Noto Serif SC](https://github.com/google/fonts/blob/main/ofl/notoserifsc/METADATA.pb)，正文使用 [Noto Sans SC](https://github.com/google/fonts/blob/main/ofl/notosanssc/METADATA.pb)，两者均为 SIL Open Font License；页面通过 [Google Fonts CSS API](https://developers.google.com/fonts/docs/css2) 加载，离线时回退到系统字体。
@@ -70,4 +78,6 @@ STL 不含颜色和单位，导入 Bambu Studio 时按毫米确认尺寸。当�
 浏览器回归检查：安装或使用现有 Playwright，并让 `NODE_PATH` 指向其所在的 `node_modules`，运行 `node tests/history.browser.js`（需要 Chrome）。检查使用本地样图和模拟接口，不消耗 API 额度，覆盖历史保存、刷新恢复、参数与照片恢复、STL 导出、重绘、删除、移动端和存储失败；`npm test` 继续运行无依赖的基础检查。
 
 服务仅绑定127.0.0.1，密钥留在服务端，静态资源使用白名单。启动已启用 Node 的原生环境代理支持，沿用机器的 HTTP_PROXY / HTTPS_PROXY。本机国际 Tripo 域名需要已有代理连接。Codex 受限环境可能阻止 Node 出网；应使用已获授权的联网进程启动服务。普通本机终端运行 `npm start` 即可。
+
+Windows 旅行工作台可在仓库目录运行 `./start-local.ps1 -Open`，使用 4180 端口在后台启动并打开页面。脚本会复用已运行的旅藏服务，不关闭占用端口的进程；日志在被忽略的 `artifacts/local-server/`。后台进程不会随终端关闭而退出，重启电脑后需要再启动一次。修改服务端配置或静态白名单后需要重启服务。
 

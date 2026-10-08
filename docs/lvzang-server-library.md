@@ -76,3 +76,11 @@ node tests/server-library.browser.js
 
 补充兼容旧默认标题「新的文创委托」为「新订单」，用户自定义标题保留，新增回归测试通过。追加更新时触发 lvzang.service 每小时启动次数限制，日志确认 start-limit-hit 后仅重置失败计数并启动，未修改服务保护配置。
 最终版本公网复验通过：首屏 3494ms，7 条订单，旧默认标题已统一为新订单；删除/归档菜单、唯一新建入口、列表切换、刷新及手机布局正常，无页面异常及付费请求。
+
+## 2026-10-08 实体订单步骤衔接与比赛演示
+
+线上更新 public/src/operator.js、public/operator.css，SHA-256 与本地一致，无需重启。备份 output/deployment-backups/operator-demo-20261008/before.tgz。已有3D订单增加「下一步：打印与验收」，切换第三步不再要求先加载/转换模型；STL 导出成功自动进入验收页，取消导出则留在原页。模型读取失败显示重试入口。
+
+「演示后续流程」打开原生对话框，以当前订单标题、参考图和规格展示模拟导出、打印验收、客户确认、交付完成。演示状态仅在内存中，可重置/退出，不写入订单、消息、真实验收证明或客户确认，不触发生产、物流及生成。手机内容可滚动，底部动作保持可见。
+
+本地 tests/operator-production-demo.browser.js 通过，覆盖预览失败仍可进入第三步、断网完整演示、重置/退出/手机、真实STL导出后进入验收、订单零修改。订单管理浏览器回归及15项相关单元测试通过。线上 scripts/verify-lvzang-operator-demo.mjs 已用现有订单完成第2/3/4步及完成态、重置和手机验收，前后订单完全一致，订单写请求0。截图 artifacts/operator-demo/live-review.png、live-delivered.png、live-mobile.png。截图中的连接失败未在本次服务检查中复现（active，API HTTP 200）；新增可重试提示，未将网络暂态宣称为已根治。

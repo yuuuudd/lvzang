@@ -1,0 +1,65 @@
+import assert from 'node:assert/strict';
+import {mkdtemp,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {chromium} from 'playwright';
+import {createApp} from '../server.js';
+import {initialState,unlock} from '../public/src/travel-state.js';
+import {emptyTravelProfile,updateTravelProfile} from '../public/src/travel-profile.js';
+import {normalizeRequest,planFromCatalog} from '../public/src/travel-domain.js';
+import {buildDailyPlan} from '../public/src/travel-schedule.js';
+
+const profile=updateTravelProfile(emptyTravelProfile(),{text:'广州三天，每天6小时，我们两个人，每人全程预算600元，必去粤博，不去广州塔，正常节奏'}).profile;
+const plan=buildDailyPlan({...planFromCatalog(normalizeRequest({description:'广州一天'}),undefined,{placeIds:['gz-museum','gz-square','gz-opera'],title:'广州3天文化漫游'}),kind:'plan',mode:'demo',trace:[],assistantReply:'三天方案已保存。'},profile);
+const saved={...initialState(),profile,plan};unlock(saved,'gz-museum',plan.title);
+const legacyState=JSON.stringify(saved),privatePhrase='交接旧对话：同行两位、粤博必去、广州塔排除';
+const oldMessages=[{role:'user',content:privatePhrase},{role:'assistant',content:'已经记住你的三天旅行条件。'}],legacyChat=JSON.stringify({version:1,messages:oldMessages});
+const dir=await mkdtemp(join(tmpdir(),'travel-identity-'));
+const server=createApp({accountsEnabled:true,testRoles:true,accountDir:dir,key:'',tripoKey:'',amapJsKey:'',amapSecurityJsCode:'',fetchImpl:async()=>{throw Error('Identity browser check forbids external AI and map calls');}});
+await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+const origin=`http://127.0.0.1:${server.address().port}`,browser=await chromium.launch({channel:'chrome',headless:true});
+try{
+  const page=await browser.newPage({viewport:{width:1500,height:1000},reducedMotion:'reduce'}),errors=[],requests=[];
+  page.setDefaultTimeout(12000);page.on('pageerror',error=>errors.push(error.message));
+  page.on('request',request=>{if(request.method()==='POST'&&request.url()===origin+'/api/travel-chat/stream')requests.push(request.postDataJSON());});
+  await page.route('**/*',route=>new URL(route.request().url()).origin===origin?route.continue():route.abort());
+  await page.goto(origin+'/');
+  await page.evaluate(({state,chat})=>{localStorage.setItem('lvzang.v1',state);localStorage.setItem('lvzang.chat.v1',chat);},{state:legacyState,chat:legacyChat});
+  await page.goto(origin+'/travel.html');await page.waitForFunction(()=>document.getElementById('trip-day-count')?.value==='3');
+  assert.equal(await page.locator('#trip-daily-hours').inputValue(),'6');assert.equal(await page.locator('#trip-pace').inputValue(),'normal');
+  assert.match(await page.locator('#chat-messages').textContent(),new RegExp(privatePhrase));
+  const retainedSources=()=>page.evaluate(()=>({legacyState:localStorage.getItem('lvzang.v1'),legacyChat:localStorage.getItem('lvzang.chat.v1'),guestState:localStorage.getItem('lvzang.v1:guest'),guestChat:localStorage.getItem('lvzang.chat.v1:guest')}));
+  const sourceBytes=await retainedSources();assert.deepEqual(sourceBytes,{legacyState,legacyChat,guestState:legacyState,guestChat:legacyChat});
+
+  await page.locator('#trip-settings-disclosure > summary').click();
+  await page.locator('#trip-day-count').fill('1');await page.locator('#trip-daily-hours').fill('2.5');await page.locator('#trip-pace').selectOption('easy');
+  await page.getByRole('button',{name:'应用并调整行程',exact:true}).click();
+  const identityResponse=page.waitForResponse(response=>response.url()===origin+'/api/auth/experience'&&response.request().method()==='POST');
+  await page.locator('.identity-menu[open] [data-identity-role=user]').click();
+  const chosen=(await (await identityResponse).json()).user;
+  await page.waitForFunction(id=>{const raw=localStorage.getItem('lvzang.v1:'+id);return !document.getElementById('plan-button').disabled&&raw&&JSON.parse(raw).plan.days.length===1;},chosen.id);
+  assert.equal(new URL(page.url()).pathname,'/travel.html','identity selection resumes the pending settings action');
+  const current=()=>page.evaluate(async()=>{const {accountInfo}=await import('/src/account-client.js'),{readState,readTravelChat,travelStorageKeys}=await import('/src/travel-state.js');return {user:accountInfo.user,state:readState(localStorage),chat:readTravelChat(localStorage),keys:travelStorageKeys()};});
+  const updated=await current(),userId=updated.user.id;
+  assert.equal(updated.user.workspaceOwner,true);assert.equal(updated.state.plan.days.length,1);assert.equal(updated.state.profile.fields.dailyHours.value,2.5);assert.equal(updated.state.profile.fields.pace.value,'easy');
+  assert.equal(updated.keys.state,'lvzang.v1:'+userId);assert.equal(updated.keys.chat,'lvzang.chat.v1:'+userId);
+  assert.deepEqual(updated.state.collection,saved.collection);
+  for(const field of ['budget','companions','requiredPlaces','excludedPlaces'])assert.deepEqual(updated.state.profile.fields[field],profile.fields[field]);
+  assert.ok(updated.chat.some(message=>message.content===privatePhrase));assert.equal(requests.length,1);
+  assert.deepEqual(requests[0].tripSettings,{dayCount:1,dailyHours:2.5,pace:'easy'});assert.deepEqual(requests[0].history,oldMessages);
+  assert.deepEqual(await retainedSources(),sourceBytes,'applying signed-in changes preserves guest and legacy records byte for byte');
+  await page.reload();await page.waitForFunction(()=>document.getElementById('trip-day-count')?.value==='1');
+  assert.equal(await page.locator('#trip-daily-hours').inputValue(),'2.5');assert.equal(await page.locator('#trip-pace').inputValue(),'easy');assert.equal(await page.locator('#day-selector').isVisible(),false);
+  assert.deepEqual((await current()).chat,updated.chat);
+
+  await page.locator('.identity-menu summary').click();await page.locator('[data-identity-role=operator]').click();await page.waitForURL('**/operator.html');
+  await page.goto(origin+'/travel.html');await page.locator('#trip-day-count').waitFor({state:'attached'});
+  const operator=await current();assert.notEqual(operator.user.id,userId);assert.equal(operator.user.activeRole,'operator');
+  assert.equal(operator.state.plan,null);assert.deepEqual(operator.state.profile,emptyTravelProfile());assert.deepEqual(operator.chat,[]);assert.deepEqual(operator.state.collection,[]);
+  assert.equal(await page.locator('#trip-day-count').inputValue(),'');assert.doesNotMatch(await page.locator('#chat-messages').textContent(),new RegExp(privatePhrase));
+  await page.locator('.identity-menu summary').click();await page.locator('[data-identity-role=user]').click();await page.waitForURL('**/collection.html#world/canvas');
+  await page.goto(origin+'/travel.html');await page.waitForFunction(()=>document.getElementById('trip-day-count')?.value==='1');
+  const returned=await current();assert.equal(returned.user.id,userId);assert.deepEqual(returned.state,updated.state);assert.deepEqual(returned.chat,updated.chat);
+  assert.deepEqual(await retainedSources(),sourceBytes);assert.deepEqual(errors,[]);
+  console.log('PASS: authenticated settings apply migrates legacy 3-day plan and chat into the stable user identity, saves 1 day/2.5h/easy, preserves guest/legacy bytes, reloads and isolates the operator before restoring the user; no external AI/map calls.');
+}finally{await browser.close();await new Promise(resolve=>server.close(resolve));assert.ok(dir.startsWith(join(tmpdir(),'travel-identity-')));await rm(dir,{recursive:true,force:true});}

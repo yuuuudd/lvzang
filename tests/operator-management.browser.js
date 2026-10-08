@@ -33,11 +33,18 @@ try{
  for(const width of [1440,1366,1024,768,390]){await page.setViewportSize({width,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`overflow at ${width}`);}
  await page.screenshot({path:'artifacts/operator-management/local-mobile.png',fullPage:true});
  await page.setViewportSize({width:1440,height:900});
- await page.getByText('管理订单',{exact:true}).click();page.once('dialog',d=>d.dismiss());await page.getByRole('button',{name:'删除订单',exact:true}).click();
+ const extraId=await page.evaluate(async()=>{const {openOperatorStore}=await import('/src/order-client.js'),{createCommission,saveCommission}=await import('/src/operator-domain.js');const store=await openOperatorStore();try{return (await saveCommission(store,createCommission({title:'误建订单',productType:'figurine'}))).id;}finally{store.close();}});
+ await page.reload();await page.getByRole('button',{name:'用户素材',exact:true}).click();await page.locator('[name=customer]').fill('尚未保存的客户称呼');
+ page.once('dialog',d=>d.accept());await page.locator('[data-delete-order="'+extraId+'"]').click();
+ await page.waitForFunction(id=>!document.querySelector('[data-open="'+id+'"]'),extraId);
+ assert.equal(await page.locator('[name=customer]').inputValue(),'尚未保存的客户称呼','deleting another row must preserve the current unsaved form');
+ assert.equal(new URL(page.url()).hash.split('/')[1],id);
+ await page.getByRole('button',{name:'保存需求',exact:true}).click();
+ page.once('dialog',d=>d.dismiss());await page.locator('[data-delete-order="'+id+'"]').click();
  assert.equal(await page.locator('.list-row.selected').count(),1);
- page.once('dialog',d=>d.accept());await page.getByRole('button',{name:'删除订单',exact:true}).click();
- await page.waitForFunction(()=>location.hash==='#list');assert.equal(await page.locator(`[data-open="${id}"]`).count(),0);
- await page.reload();await page.locator('[name=orderView]').waitFor();assert.equal(await page.locator(`[data-open="${id}"]`).count(),0);
+ page.once('dialog',d=>d.accept());await page.locator('[data-delete-order="'+id+'"]').click();
+ await page.waitForFunction(()=>location.hash==='#list');await page.locator(`[data-open="${id}"]`).waitFor({state:"detached"});
+ await page.reload();await page.locator('[name=orderView]').waitFor();await page.locator(`[data-open="${id}"]`).waitFor({state:"detached"});
  await page.selectOption('[name=orderView]','deleted');await page.locator(`[data-open="${id}"]`).click();await page.getByRole('button',{name:'恢复订单',exact:true}).click();
  await page.waitForFunction(()=>location.hash==='#list');await page.selectOption('[name=orderView]','active');await page.locator(`[data-open="${id}"]`).click();await page.locator('.order-menu').waitFor();
  await page.getByText('管理订单',{exact:true}).click();await page.getByRole('button',{name:'归档订单',exact:true}).click();await page.waitForFunction(()=>location.hash==='#list');
@@ -45,7 +52,7 @@ try{
  await page.selectOption('[name=orderView]','active');await page.locator(`[data-open="${order.id}"]`).click();await page.locator('[data-conversation]').waitFor();
  await page.screenshot({path:'artifacts/operator-management/shared-desktop.png'});
  await page.getByText('管理订单',{exact:true}).click();page.once('dialog',d=>d.accept());await page.getByRole('button',{name:'删除订单',exact:true}).click();await page.waitForFunction(()=>location.hash==='#list');
- await page.reload();await page.locator('[name=orderView]').waitFor();assert.equal(await page.locator(`[data-open="${order.id}"]`).count(),0);
+ await page.reload();await page.locator('[name=orderView]').waitFor();await page.locator(`[data-open="${order.id}"]`).waitFor({state:"detached"});
  const customerOrder=await(await user.request.get(base+'/api/orders/'+order.id)).json();assert.equal(customerOrder.status,'submitted');assert.equal(customerOrder.photos.length,1);
  await page.selectOption('[name=orderView]','deleted');await page.locator(`[data-open="${order.id}"]`).click();await page.getByRole('button',{name:'恢复订单',exact:true}).click();await page.waitForFunction(()=>location.hash==='#list');
  await page.selectOption('[name=orderView]','active');await page.locator(`[data-open="${order.id}"]`).waitFor();

@@ -1,0 +1,49 @@
+import assert from 'node:assert/strict';
+import {mkdir} from 'node:fs/promises';
+import {chromium} from 'playwright';
+import {createApp} from '../server.js';
+import {landmarkModelKeys} from '../public/src/travel-landmark-geometry.js';
+
+const rows=[
+ ['杭州','雷峰塔','hz-leifeng-tower'],['杭州','保俶塔','hz-baochu-pagoda'],['杭州','三潭印月','hz-three-pools'],['杭州','灵隐寺','hz-lingyin-temple'],
+ ['苏州','虎丘塔','sz-tiger-hill'],['苏州','苏州博物馆','sz-museum'],['苏州','北寺塔','sz-north-temple-pagoda'],['苏州','东方之门','sz-gate-east'],
+ ['北京','天坛祈年殿','bj-temple-heaven'],['北京','故宫博物院','bj-palace-museum'],['北京','国家体育场(鸟巢)','bj-birds-nest'],
+ ['上海','东方明珠','sh-oriental-pearl'],['上海','上海中心大厦','sh-shanghai-tower'],['上海','上海海关大楼','sh-customs-house'],['上海','中华艺术宫','sh-china-art-museum'],
+ ['成都','天府熊猫塔','cd-panda-tower'],['成都','安顺廊桥','cd-anshun-bridge'],['成都','望江楼','cd-wangjiang-tower'],['成都','文殊院','cd-wenshu-monastery'],
+ ['拉萨','布达拉宫','xz-potala-palace'],['拉萨','大昭寺','xz-jokhang-temple'],['拉萨','罗布林卡','xz-norbulingka'],['日喀则','扎什伦布寺','xz-tashilhunpo'],
+ ['深圳','平安金融中心','shenzhen-pingan-finance'],['深圳','京基100','shenzhen-kk100'],['深圳','地王大厦','shenzhen-diwang'],['深圳','深圳市民中心','shenzhen-civic-center'],['深圳','春笋','shenzhen-china-resources-tower'],['深圳','深圳湾文化广场','shenzhen-bay-culture'],
+ ['广州','广东省博物馆','gz-museum'],['广州','广州塔','gz-tower'],['广州','广州大剧院','gz-opera'],['广州','广州国际金融中心','gz-ifc'],
+ ['广州','太古汇','commercial'],['广州','正佳广场','commercial'],['广州','永庆坊','ground-street'],['广州','越秀公园','ground-park'],['广州','陈家祠','ground-hall'],['广州','广州艺术博物院','ground-culture'],['广州','海心桥','ground-bridge'],['苏州','拙政园','sz-garden'],['杭州','西湖','hz-westlake'],
+ ['中山','孙中山故居','zhongshan-sun-residence'],['中山','孙中山纪念堂','zhongshan-memorial-hall'],['中山','中山詹园','zhongshan-zhan-garden'],['中山','缤纷幻彩摩天轮','zhongshan-skywheel'],
+ ['佛山','佛山祖庙','foshan-ancestral-temple'],['佛山','南风古灶','foshan-nanfeng-kiln'],['佛山','清晖园','foshan-qinghui-garden'],['珠海','珠海大剧院','zhuhai-grand-theatre'],['珠海','圆明新园','zhuhai-new-yuanming-palace'],['珠海','海滨泳场灯塔','zhuhai-love-post-lighthouse']
+];
+const app=createApp({key:'',accountsEnabled:false,fetchImpl:async()=>{throw Error('No external request in model preview');}});await new Promise(resolve=>app.listen(0,'127.0.0.1',resolve));
+const browser=await chromium.launch({channel:'chrome',headless:true}),origin=`http://127.0.0.1:${app.address().port}`;
+try{
+ const page=await browser.newPage({viewport:{width:1180,height:1400},deviceScaleFactor:1}),errors=[];page.on('pageerror',error=>errors.push(error.message));
+ await page.route('**/*',route=>route.request().url().startsWith(origin+'/')?route.continue():route.abort());
+ await page.route(origin+'/landmark-preview',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><html lang="zh"><meta charset="utf-8"><title>城市微缩建筑总览</title><style>body{margin:0;background:#edf2ef;color:#263a31;font:15px "Microsoft YaHei",sans-serif}h1{margin:24px 24px 4px;font-size:24px}p{margin:0 24px 18px;color:#596d61}.grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;padding:0 24px 24px}.tile{background:white;border:1px solid #d8e2db;border-radius:12px;text-align:center;padding:12px 8px}.map-marker{position:static;border:0;background:none;color:inherit;width:100%;font:inherit}.landmark-model,.landmark-label,.landmark-name,.landmark-day{display:block}.landmark-canvas{width:128px;height:124px}.landmark-name{font-weight:650;margin:6px 0}.landmark-day{font-size:11px;color:#85948b}.identity{font-size:11px;color:#65746c;overflow-wrap:anywhere;margin-top:8px}</style><h1>城市招牌建筑 · 微缩示意</h1><p>仅为地图识别轮廓；坐标仍由地图服务定位。</p><main class="grid"></main></html>'}));
+ await page.goto(origin+'/landmark-preview');
+ const models=await page.evaluate(async rows=>{
+   const {createLandmarkMarker}=await import('/src/travel-map-landmarks.js');
+   return rows.map(([city,name,expected],index)=>{
+     const card=document.createElement('article');card.className='tile';const marker=createLandmarkMarker({id:`ai-random-${index}`,city,name,kind:'suggested'},{index});
+     const caption=document.createElement('div');caption.className='identity';caption.textContent=`${city} · ${marker.dataset.landmarkKind}`;card.append(marker,caption);document.querySelector('.grid').append(card);
+     const canvas=marker.querySelector('canvas'),pixels=canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height).data;let painted=0;for(let i=3;i<pixels.length;i+=4)if(pixels[i])painted++;
+     return {city,name,expected,kind:marker.dataset.landmarkKind,painted,noModel:marker.classList.contains('has-no-model'),image:canvas.toDataURL()};
+   });
+ },rows);
+ await mkdir('artifacts/landmark-models',{recursive:true});await page.screenshot({path:'artifacts/landmark-models/contact-sheet.png',fullPage:true});
+ for(const model of models){assert.equal(model.kind,model.expected,`${model.city} ${model.name}: random IDs must resolve to the trusted model`);assert.equal(model.noModel,false,model.name);assert.ok(model.painted>250,`${model.name}: model is not blank`);}
+ const dedicated=models.filter(model=>landmarkModelKeys.includes(model.kind));assert.equal(dedicated.length,landmarkModelKeys.length);assert.equal(new Set(dedicated.map(model=>model.image)).size,landmarkModelKeys.length,'Every registered landmark has a distinct rendered silhouette');
+ const fallback=await page.evaluate(async()=>{
+   const {createLandmarkMarker,setLandmarkState}=await import('/src/travel-map-landmarks.js');
+   return [{id:'unknown-random',city:'未知城市',name:'未收录的地点'},{id:'ai-keyuan',city:'东莞',name:'可园'},{id:'search-songshan',city:'东莞市',name:'松山湖',kind:'exploration'}].map(stop=>{
+     const marker=createLandmarkMarker(stop,{dayIndex:2});setLandmarkState(marker,{focused:true,destination:true});
+     return {kind:marker.dataset.landmarkKind,style:marker.dataset.markerStyle,pin:!!marker.querySelector('svg.landmark-pin'),canvas:!!marker.querySelector('canvas'),model:!!marker.querySelector('.landmark-model'),type:marker.type,pressed:marker.getAttribute('aria-pressed'),current:marker.getAttribute('aria-current'),label:marker.getAttribute('aria-label'),endpoint:marker.querySelector('.landmark-endpoint').textContent};
+   });
+ });
+ for(const marker of fallback){assert.equal(marker.kind,'place');assert.equal(marker.style,'pin');assert.equal(marker.pin,true);assert.equal(marker.canvas,false);assert.equal(marker.model,false);assert.equal(marker.type,'button');assert.equal(marker.pressed,'true');assert.equal(marker.current,'location');assert.match(marker.label,/已选为终点.*当前查看/);assert.equal(marker.endpoint,'终点');}
+ assert.match(fallback[2].label,/探索地点，未加入行程/);
+ assert.deepEqual(errors,[]);console.log(`PASS: ${models.length} trusted landmark renders, random-ID city/name resolution, distinct dedicated silhouettes and ordinary SVG pins with accessible endpoint states; contact sheet saved.`);
+}finally{await browser.close();await new Promise(resolve=>app.close(resolve));}

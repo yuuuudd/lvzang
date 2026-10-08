@@ -18,6 +18,11 @@ try{
  assert.ok(await page.locator('.list-row').count()>0);await page.locator('.work-action-bar').waitFor({timeout:60000});
  await mkdir('artifacts/operator-management',{recursive:true});await page.screenshot({path:'artifacts/operator-management/live-desktop.png'});
  assert.doesNotMatch(await page.locator('.commission-list').textContent(),/委托/);
+ const rowCount=await page.locator('.list-row').count();
+ assert.equal(await page.locator('[data-delete-order]').count(),rowCount);
+ page.once('dialog',dialog=>dialog.dismiss());await page.locator('[data-delete-order]').first().click();
+ assert.equal(await page.locator('.list-row').count(),rowCount,'cancelled deletion preserves live orders');
+ await page.screenshot({path:'artifacts/operator-management/live-left-delete.png'});
  assert.equal(await page.locator('[data-action=new]').count(),1);
  assert.equal(await page.getByRole('button',{name:'新建订单'}).count(),1);
  assert.equal(await page.locator('.journey-steps button').count(),0);

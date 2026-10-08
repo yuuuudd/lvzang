@@ -43,6 +43,7 @@ try{
  await page.screenshot({path:'artifacts/operator-demo/delivered.png'});
  await page.setViewportSize({width:390,height:844});
  assert.ok(await demo.evaluate(el=>el.scrollWidth<=el.clientWidth));
+ assert.ok(await demo.locator('.demo-footer').evaluate(el=>el.getBoundingClientRect().bottom<=innerHeight));
  await page.screenshot({path:'artifacts/operator-demo/mobile.png',fullPage:true});
  await demo.getByRole('button',{name:'重新演示'}).click();
  await demo.getByRole('heading',{name:'尺寸与报价',exact:true}).waitFor();

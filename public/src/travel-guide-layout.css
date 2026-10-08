@@ -1,0 +1,57 @@
+/* Both regions keep their own scroll position. Only their shared boundary moves. */
+#canvas-viewport{overflow:hidden;touch-action:auto;cursor:auto}
+#canvas-world{position:relative;inset:auto;display:grid;grid-template-columns:minmax(0,var(--travel-map-width,55%)) 12px minmax(0,1fr);gap:0;width:100%;height:100%;min-width:0;min-height:0;transform:none!important;will-change:auto}
+#map-pane,#guide-pane{min-width:0;min-height:0;overflow:auto;overscroll-behavior:auto;scrollbar-width:thin;padding:8px;display:flex;flex-direction:column;gap:12px}
+#map-pane{container-type:inline-size;container-name:travel-map-pane}
+#guide-pane{--guide-font-size:16px;--guide-control-size:13px;--guide-target-size:40px}
+#canvas-world .canvas-node{position:relative;inset:auto!important;flex-shrink:0;width:100%;min-width:0;max-width:100%;transform:none;overflow:hidden}
+#canvas-world .node-header{cursor:default;height:auto;min-height:48px;flex-wrap:wrap}
+#canvas-world .node-header h2{min-width:0;white-space:normal;overflow-wrap:anywhere}
+#map-pane .map-node{isolation:isolate}
+#map-pane .trip-facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,160px),1fr));gap:12px}
+#map-pane .map-controls{flex-wrap:wrap;gap:6px}
+#map-pane .map-controls>span{overflow-wrap:anywhere;min-width:0}
+#map-pane .map-discovery label{min-width:0;flex:1 1 120px}
+#map-pane .map-discovery-filters{min-width:0}
+#map-pane #map-search-form{flex-wrap:wrap}
+#map-pane #map-search-form input{flex-basis:100px}
+#map-pane .route-souvenirs{grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr))}
+#travel-splitter{position:relative;align-self:stretch;min-width:12px;width:12px;cursor:col-resize;touch-action:none;user-select:none;outline-offset:-2px;background:transparent}
+#travel-splitter::before{content:"";position:absolute;top:0;bottom:0;left:5px;width:2px;border-radius:2px;background:var(--line)}
+#travel-splitter::after{content:"";position:absolute;top:calc(50% - 26px);left:3px;width:6px;height:52px;border:1px solid #a1ad93;border-radius:4px;background:var(--surface)}
+#travel-splitter:hover::before,#travel-splitter:focus-visible::before,.travel-split-dragging #travel-splitter::before{background:var(--green)}
+.travel-split-dragging{cursor:col-resize;user-select:none}
+.travel-split-dragging #map-pane,.travel-split-dragging #guide-pane{pointer-events:none}
+/* The whole guide scrolls, including its header, refresh form and sources. */
+#guide-pane #route-section{display:flex;flex-direction:column;flex:none;min-height:360px;height:auto;max-height:none}
+#route-section>.node-header{flex:none}
+#route-section>.node-header h2{font-size:calc(var(--guide-font-size) + 2px)}
+#route-refresh-slot{flex:none;min-width:0;padding:0 12px}
+#route-section>.itinerary-content{flex:none;min-height:0;max-height:none;overflow:visible;overscroll-behavior:auto;font-size:var(--guide-font-size);overflow-wrap:anywhere;padding-inline:12px}
+#route-section .stop-story,#route-section .stop-card details p,#route-section .stop-guide,#route-section .stop-guide h4,#route-section .food-name,#route-section .travel-guide-overview,#route-section .assumption{font-size:var(--guide-font-size);line-height:1.75}
+#route-section .stop-card h3{font-size:var(--guide-font-size);line-height:1.5}
+#route-section .stop-time,#route-section #route-meta,#route-section #route-title,#route-section .route-notes summary,#route-section .research-sources,#route-section .ask-stop-guide,#route-section .stop-actions button,#route-section .stop-actions a,#route-section #revise{font-size:var(--guide-control-size);line-height:1.65}
+#route-section .stop-actions{flex-wrap:wrap}
+#route-section .day-selector button{font-size:var(--guide-control-size);min-height:var(--guide-target-size)}
+#guide-pane #sources-node{width:100%;max-height:none}
+#guide-pane .source-panel{max-height:none;overflow:visible;overflow-wrap:anywhere}
+@container travel-map-pane (max-width:300px){
+ #map-pane .node-header,#map-pane .map-controls,#map-pane .map-controls label,#map-pane .strip-heading{flex-wrap:wrap;white-space:normal}
+ #map-pane #map-search-form{flex-direction:column}
+ #map-pane #map-search-form input{flex-basis:auto}
+ #map-pane #map-explorer-controls{position:relative;inset:auto;display:flex;flex-wrap:wrap;max-width:100%}
+ #map-pane .route-souvenirs{display:flex;flex-direction:column}
+ #map-pane .souvenir-preview{width:100%;min-width:0}
+ #map-pane .strip-heading a{overflow-wrap:anywhere}
+ #map-pane .map-message{padding:12px;overflow-wrap:anywhere;font-size:12px}
+}
+@media(max-width:767px){
+ #canvas-viewport{position:relative;inset:auto;height:min(760px,86dvh);min-height:440px;overflow:hidden}
+ #canvas-world{display:grid;height:100%;gap:0}
+ #map-pane,#guide-pane{padding:4px;gap:8px}
+ #canvas-world .node-header{padding:10px 8px}
+ #route-refresh-slot,#route-section>.itinerary-content{padding-inline:8px}
+ #map-pane .map-discovery{padding-inline:8px}
+ #map-pane .map-controls{padding-inline:8px}
+ #map-pane .strip-heading{flex-wrap:wrap}
+}

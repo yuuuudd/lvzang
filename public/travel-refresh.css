@@ -1,0 +1,27 @@
+#app-main>#route-refresh-slot{position:sticky;top:0;z-index:40;flex:none;padding:12px 24px;background:var(--surface);border-bottom:1px solid var(--line);isolation:isolate}
+/* Header menus must remain above the sticky destination toolbar. */
+.site-header .identity-menu[open]{z-index:60}
+.site-header .identity-panel{max-height:calc(100dvh - 80px);overflow-y:auto;overscroll-behavior:contain}
+.route-refresh-form{display:grid;grid-template-columns:auto minmax(240px,480px) minmax(0,1fr);align-items:center;gap:4px 16px;margin:0;cursor:default}
+.route-refresh-form>label{grid-row:1;font-size:14px;font-weight:600}
+.route-refresh-row{display:flex;gap:8px;align-items:stretch;min-width:0}
+.route-refresh-row input{flex:1;min-width:0;width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px;background:var(--surface);font:inherit;font-size:15px;min-height:44px;color:var(--ink)}
+.route-refresh-row button{flex:none;min-height:44px;padding:8px 16px;font-size:14px;white-space:nowrap;background:var(--accent);color:var(--ink);font-weight:600;border:1px solid transparent;border-radius:8px}
+.route-refresh-row button:hover:not(:disabled){background:#b9e85c}
+.route-current-destination{font-size:13px;color:var(--muted);overflow-wrap:anywhere}
+#route-refresh-note{grid-column:2 / -1;font-size:12px;margin:0;line-height:1.6;overflow-wrap:anywhere;max-height:3.2em;overflow-y:auto}
+#route-refresh-note.error{color:#a33b25}
+#app-main:has(.workspace[hidden])>#route-refresh-slot{display:none}
+@media(min-width:768px){
+ #app-main:has(.workspace:not([hidden])){height:calc(100dvh - 68px);display:flex;flex-direction:column;min-height:0}
+ #app-main>.workspace{flex:1;min-height:0;height:auto}
+}
+@media(max-width:767px){
+ #app-main>#route-refresh-slot{padding:10px 14px}
+ .route-refresh-form{grid-template-columns:minmax(0,1fr) auto;gap:6px 12px}
+ .route-refresh-form>label{grid-column:1;grid-row:1}
+ .route-current-destination{grid-column:2;grid-row:1;font-size:12px}
+ .route-refresh-row{grid-column:1 / -1;grid-row:2}
+ #route-refresh-note{grid-column:1 / -1;grid-row:3}
+ #canvas-viewport{scroll-margin-top:140px}
+}
